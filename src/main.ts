@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, clipboard, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -522,6 +522,21 @@ ipcMain.handle('ui:copy-text', (_event, text: string) => {
     return true;
   } catch {
     return false;
+  }
+});
+ipcMain.handle('ui:pick-folder', async () => {
+  if (!mainWindow) return null;
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Choose a workspace folder',
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  } catch {
+    return null;
   }
 });
 ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {

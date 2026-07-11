@@ -63,6 +63,7 @@ interface CodexAPI {
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => () => void;
   onNewSession: (callback: () => void) => () => void;
   copyText: (text: string) => Promise<boolean>;
+  pickFolder: () => Promise<string | null>;
   openPath: (targetPath: string) => Promise<boolean>;
 }
 

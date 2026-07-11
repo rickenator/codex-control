@@ -25,6 +25,7 @@ interface Props {
   onSelect: (id: string) => void;
   onStartSession: (options: NewSessionOptions) => void;
   onReconnect: (sessionId: string) => void;
+  onPickRepository: () => Promise<string | null>;
   settings: {
     defaultProvider: 'default' | 'remote_llamacpp';
     remoteLlamaCpp: {
@@ -53,7 +54,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -282,6 +283,19 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               }}
             >
               Start Session
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={async () => {
+                const folder = await onPickRepository();
+                if (folder) {
+                  setRepository(folder);
+                  setShowNewSession(true);
+                }
+              }}
+              style={{ width: '100%', marginTop: 8 }}
+            >
+              Browse workspace…
             </button>
             <div className="codex-help" style={{ marginTop: 8 }}>
               Tip: Ctrl/Cmd+Enter submits, Esc closes the form, Ctrl/Cmd+L focuses search.

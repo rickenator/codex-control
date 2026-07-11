@@ -228,6 +228,16 @@ export default function App() {
     }
   };
 
+  const handlePickRepository = async () => {
+    try {
+      const folder = await window.codexApi.pickFolder();
+      return folder;
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not open folder picker: ${(e as Error).message}` });
+      return null;
+    }
+  };
+
   return (
     <div className="codex-app-shell">
       {notice && (
@@ -278,6 +288,7 @@ export default function App() {
           onSelect={setSelectedSession}
           onStartSession={handleStartSession}
           onReconnect={handleReconnect}
+          onPickRepository={handlePickRepository}
           settings={settings}
           onSettingsChange={handleSettingsChange}
         />
