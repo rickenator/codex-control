@@ -1,12 +1,13 @@
 # codex-control
 
-A Linux desktop control plane for Codex CLI — observability and session management, not a replacement for the terminal.
+A Linux desktop control plane for Codex CLI — observability and session management.
 
 ## Architecture
 
-- **Frontend**: Tauri 2 + React + TypeScript
-- **Backend**: Rust (privileged boundary only — process/PTY supervision, git, SQLite, IPC)
-- **State**: SQLite + append-only JSONL event logs
+- **Frontend**: React + TypeScript (Vite)
+- **Shell**: Electron (Linux packaging: AppImage + .deb)
+- **Native backend**: C++17 compiled as a Node.js native addon (node-addon-api)
+- **State**: SQLite (better-sqlite3) + append-only JSONL event logs
 - **Integration**: Codex app-server protocol (preferred) → CLI adapter (fallback)
 
 ## Product surfaces
@@ -21,7 +22,7 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 
 | Milestone | Description |
 |-----------|-------------|
-| M0 | Repository scaffold, Tauri shell, SQLite migrations, logging |
+| M0 | Repository scaffold, Electron shell, C++ native addon stubs, React layout |
 | M1 | Codex process/app-server connection and event capture |
 | M2 | Prompt/response timeline and reconnect |
 | M3 | Approval UI with exact command details |
@@ -35,17 +36,41 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 
 The GUI must never become a simplified toy layer. Every visual action should have an inspectable underlying command, event, file operation, or protocol message. The user should be able to copy the equivalent CLI command whenever one exists.
 
-## Quick start (development)
+## Development
 
 ```bash
-# Install Tauri CLI
-cargo install tauri-cli --version "^2"
+# Install dependencies
+npm install
 
-# Install frontend deps
-cd src && npm install
+# Build native C++ addon
+npm run build:native
 
-# Run dev server
-cargo tauri dev
+# Run dev server (renderer + Electron)
+npm run dev:all
+```
+
+## Repository layout
+
+```
+codex-control/
+  native/               # C++17 native addon
+    src/addon.cpp       # N-API bindings (process, git, event logging)
+    src/node_pty_bridge.h/cpp  # PTY lifecycle management
+    binding.gyp         # node-gyp build config
+  src/                  # Electron + React frontend
+    main.ts             # Electron main process
+    preload.ts          # contextBridge API
+    renderer.tsx        # React entry point
+    App.tsx             # Three-pane layout (sessions | timeline | diff/terminal)
+    features/           # Feature modules
+      sessions/         # Session list, event timeline
+      diffs/            # Diff viewer
+      approvals/        # Approval queue
+      tasks/            # Task board
+      workspaces/       # Workspace dashboard
+      settings/         # Configuration
+    components/         # Shared UI components (TerminalPane, etc.)
+  tests/fixtures/codex-events/  # Protocol event fixtures for regression tests
 ```
 
 ## License

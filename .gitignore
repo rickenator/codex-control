@@ -1,14 +1,18 @@
 # Build outputs
-src/out/
-src/node_modules/
-src-tauri/target/
-src-tauri/icons/
+dist/
+out/
+native/build/
+native/.gyp/
+
+# Dependencies
+node_modules/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -17,3 +21,9 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# Electron packaging
+*.dmg
+*.AppImage
+*.deb
+*.rpm

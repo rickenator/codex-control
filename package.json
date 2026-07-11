@@ -1,0 +1,52 @@
+{
+  "name": "codex-control",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build:native": "node-gyp rebuild --directory native",
+    "dev": "vite --config vite.renderer.config.ts",
+    "start": "electron .",
+    "dev:all": "concurrently \"vite --config vite.renderer.config.ts\" \"wait-on dist/renderer/index.html && electron .\"",
+    "build:renderer": "vite build --config vite.renderer.config.ts",
+    "build": "npm run build:native && npm run build:renderer",
+    "package": "electron-builder"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11",
+    "node-pty": "^1.0",
+    "xterm": "^5.5",
+    "xterm-addon-fit": "^0.10",
+    "xterm-addon-web-links": "^0.11"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^1",
+    "@types/better-sqlite3": "^7",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "concurrently": "^9",
+    "electron": "^33",
+    "electron-builder": "^25",
+    "node-gyp": "^11",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "^5",
+    "vite": "^6",
+    "wait-on": "^8"
+  },
+  "build": {
+    "appId": "com.rickenator.codex-control",
+    "productName": "Codex Control",
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "icon": "build/icons"
+    },
+    "files": [
+      "dist/**/*",
+      "native/build/Release/*.node"
+    ]
+  }
+}
