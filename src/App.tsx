@@ -303,6 +303,8 @@ export default function App() {
           onStartSession={handleStartSession}
           onReconnect={handleReconnect}
           onPickRepository={handlePickRepository}
+          onCopyPath={handleCopyText}
+          onOpenPath={handleOpenPath}
           onTestRemote={handleTestRemoteLlamaCpp}
           settings={settings}
           onSettingsChange={handleSettingsChange}

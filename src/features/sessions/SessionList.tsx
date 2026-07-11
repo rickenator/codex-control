@@ -26,6 +26,8 @@ interface Props {
   onStartSession: (options: NewSessionOptions) => void;
   onReconnect: (sessionId: string) => void;
   onPickRepository: () => Promise<string | null>;
+  onCopyPath: (path: string, label: string) => void;
+  onOpenPath: (path: string, label: string) => void;
   onTestRemote: (config: { baseUrl: string; model: string; apiKey: string }) => Promise<boolean>;
   settings: {
     defaultProvider: 'default' | 'remote_llamacpp';
@@ -55,7 +57,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onTestRemote, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -191,7 +193,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#f0f6fc' }}>Sessions</h3>
-            <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>Active workspaces and launch profiles</div>
+            <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>Workspaces, launch profiles, and live sessions</div>
           </div>
           <button
             className="codex-button codex-button-info"
@@ -422,7 +424,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             No sessions yet. Click "+ New" to start a session.
           </div>
         )}
-        {(search.trim() ? filteredSessions : sessions).map(s => (
+        {(search.trim() ? filteredSessions : sessions).map(s => {
+          const workspaceLabel = sessionLabel(s.repository);
+          const workspacePath = s.repository?.trim() || '';
+          return (
           <div
             key={s.id}
             onClick={() => onSelect(s.id)}
@@ -438,11 +443,51 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             }}
             aria-pressed={selected === s.id}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div className="codex-list-item-title">
-                {s.repository || 'Untitled'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="codex-list-item-title" title={workspacePath || 'Untitled'}>
+                  {workspaceLabel}
+                </div>
+                <div className="codex-list-item-subtitle" style={{ marginTop: 5 }}>
+                  {workspacePath ? (
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {workspacePath}
+                    </span>
+                  ) : (
+                    <span>Unnamed workspace</span>
+                  )}
+                </div>
               </div>
-              {s.status === 'failed' && (
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {workspacePath && (
+                  <>
+                    <button
+                      className="codex-button codex-button-secondary"
+                      aria-label={`Copy path for ${workspaceLabel}`}
+                      title="Copy path"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCopyPath(workspacePath, 'Workspace path');
+                      }}
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      className="codex-button codex-button-secondary"
+                      aria-label={`Open ${workspaceLabel}`}
+                      title="Open folder"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenPath(workspacePath, 'Workspace');
+                      }}
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                    >
+                      Open
+                    </button>
+                  </>
+                )}
+                {s.status === 'failed' && (
                 <button
                   className="codex-button codex-button-secondary"
                   aria-label={`Retry session for ${s.repository || 'untitled workspace'}`}
@@ -452,10 +497,11 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                     onReconnect(s.id);
                   }}
                   style={{ padding: '4px 10px', marginLeft: 8, color: '#58a6ff' }}
-                >
-                  Retry
-                </button>
-              )}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
             </div>
             <div className="codex-list-item-subtitle">
               <span>{s.branch || 'no branch'}</span>
@@ -471,7 +517,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               <span>{formatUpdatedAt(s.updated_at)}</span>
             </div>
           </div>
-        ))}
+        );})}
       </div>
     </aside>
   );
@@ -494,4 +540,11 @@ function formatUpdatedAt(updatedAt: number) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   return `${days}d ago`;
+}
+
+function sessionLabel(repository?: string) {
+  const trimmed = repository?.trim() || '';
+  if (!trimmed) return 'Untitled workspace';
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || trimmed;
 }
