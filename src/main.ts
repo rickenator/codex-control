@@ -102,16 +102,24 @@ function createWindow() {
 
 function saveStore() {
   if (!storePath) return;
-  fs.writeFileSync(storePath, JSON.stringify({
+  writeJsonAtomic(storePath, {
     sessions: [...records.values()],
     events: Object.fromEntries(events),
     approvals: [...approvals.values()],
-  }));
+  });
 }
 
 function saveSettings() {
   if (!settingsPath) return;
-  fs.writeFileSync(settingsPath, JSON.stringify(appSettings, null, 2));
+  writeJsonAtomic(settingsPath, appSettings);
+}
+
+function writeJsonAtomic(filePath: string, data: unknown) {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporaryPath = `${filePath}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2));
+  fs.renameSync(temporaryPath, filePath);
 }
 
 function initStore() {
