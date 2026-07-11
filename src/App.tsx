@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import SessionList from './features/sessions/SessionList';
 import EventTimeline from './features/sessions/EventTimeline';
 import DiffViewer from './features/diffs/DiffViewer';
@@ -39,12 +39,12 @@ export default function App() {
   useEffect(() => {
     window.codexApi.listSessions().then(setSessions);
     window.codexApi.getSettings().then((loaded: AppSettings) => setSettings(loaded)).catch(() => {});
+  }, []);
 
+  useEffect(() => {
     const unsubscribeRecovery = window.codexApi.onSessionsRecovered((sessionIds: string[]) => {
       setRecoveredSessions(sessionIds);
-      if (!selectedSession && sessionIds.length > 0) {
-        setSelectedSession(sessionIds[0]);
-      }
+      setSelectedSession(prev => prev || sessionIds[0] || null);
     });
 
     const unsubscribeApproval = window.codexApi.onApprovalRequest(() => {
@@ -57,7 +57,7 @@ export default function App() {
       unsubscribeRecovery();
       unsubscribeApproval();
     };
-  }, [selectedSession]);
+  }, []);
 
   useEffect(() => {
     if (!sessions.length) return;
@@ -98,7 +98,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleShortcut);
   }, []);
 
-  const activeSession = sessions.find(session => session.id === selectedSession);
+  const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
 
   const handleStartSession = async (options: {
     repository?: string;
@@ -153,7 +153,7 @@ export default function App() {
       {recoveredSessions.length > 0 && (
         <div className="codex-banner">
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
-            {recoveredSessions.length} session(s) recovered from previous session
+            {recoveredSessions.length} session{recoveredSessions.length === 1 ? '' : 's'} recovered from the last run
           </span>
           <button
             className="codex-button codex-button-secondary"

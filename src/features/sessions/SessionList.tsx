@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface Session {
   id: string;
@@ -62,6 +62,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
   const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const repositoryRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setProvider(settings.defaultProvider);
@@ -76,6 +78,43 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (showNewSession) {
+      queueMicrotask(() => repositoryRef.current?.focus());
+    }
+  }, [showNewSession]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+      if (event.key === 'Enter' && showNewSession) {
+        event.preventDefault();
+        if (provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())) return;
+        onStartSession({
+          repository: repository.trim() || undefined,
+          branch: branch.trim() || undefined,
+          provider,
+          remoteLlamaCpp: provider === 'remote_llamacpp' ? {
+            baseUrl: baseUrl.trim() || undefined,
+            model: model.trim() || undefined,
+            apiKey: apiKey.trim() || undefined,
+          } : undefined,
+        });
+      }
+      if (event.key === 'Escape' && showNewSession) {
+        setShowNewSession(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, onStartSession]);
 
   const filteredSessions = sessions.filter(session => {
     const haystack = [
@@ -100,8 +139,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           <button
             className="codex-button codex-button-info"
             onClick={() => setShowNewSession(!showNewSession)}
+            aria-expanded={showNewSession}
+            aria-controls="new-session-form"
           >
-            + New
+            {showNewSession ? 'Close' : '+ New'}
           </button>
         </div>
 
@@ -144,8 +185,9 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         </div>
 
         {showNewSession && (
-          <div className="codex-form-card">
+          <div className="codex-form-card" id="new-session-form">
             <input
+              ref={repositoryRef}
               type="text"
               placeholder="Repository path"
               value={repository}
@@ -241,12 +283,16 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             >
               Start Session
             </button>
+            <div className="codex-help" style={{ marginTop: 8 }}>
+              Tip: Ctrl/Cmd+Enter submits, Esc closes the form, Ctrl/Cmd+L focuses search.
+            </div>
           </div>
         )}
       </div>
 
       <div style={{ padding: '0 14px 10px' }}>
         <input
+          ref={searchRef}
           type="search"
           placeholder="Search sessions"
           value={search}
@@ -272,6 +318,15 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             onClick={() => onSelect(s.id)}
             className={`codex-list-item ${selected === s.id ? 'codex-list-item-active' : ''}`}
             style={{ borderLeftColor: statusColor[s.status] || '#8b949e' }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onSelect(s.id);
+              }
+            }}
+            aria-pressed={selected === s.id}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="codex-list-item-title">
@@ -300,6 +355,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                   <span>{s.provider === 'remote_llamacpp' ? 'llama.cpp' : 'default'}</span>
                 </>
               )}
+              <span>·</span>
+              <span>{formatUpdatedAt(s.updated_at)}</span>
             </div>
           </div>
         ))}
@@ -315,4 +372,14 @@ function MiniRow({ label, value }: { label: string; value: string }) {
       <span style={{ color: '#f0f6fc', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
     </div>
   );
+}
+
+function formatUpdatedAt(updatedAt: number) {
+  const delta = Date.now() - updatedAt;
+  const minutes = Math.max(1, Math.round(delta / 60000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
 }

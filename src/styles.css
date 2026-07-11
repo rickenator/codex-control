@@ -230,6 +230,11 @@ textarea:focus-visible {
   font-weight: 500;
 }
 
+.codex-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .codex-button-secondary {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--border);
@@ -297,6 +302,12 @@ textarea:focus-visible {
 }
 
 .codex-list-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  background: transparent;
+  border: 0;
   padding: 11px 14px;
   cursor: pointer;
   border-left: 3px solid transparent;
@@ -309,6 +320,11 @@ textarea:focus-visible {
 
 .codex-list-item-active {
   background: rgba(88, 166, 255, 0.10);
+}
+
+.codex-list-item:focus-visible {
+  outline: 2px solid rgba(88, 166, 255, 0.55);
+  outline-offset: -2px;
 }
 
 .codex-list-item-title {
