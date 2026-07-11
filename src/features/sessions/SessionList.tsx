@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 interface Session {
   id: string;
@@ -65,6 +65,22 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRef = useRef<HTMLInputElement>(null);
+  const recentWorkspaces = useMemo(() => {
+    const latestByRepo = new Map<string, number>();
+    for (const session of sessions) {
+      const repository = session.repository?.trim();
+      if (!repository) continue;
+      const updatedAt = session.updated_at || 0;
+      const current = latestByRepo.get(repository);
+      if (current == null || updatedAt > current) {
+        latestByRepo.set(repository, updatedAt);
+      }
+    }
+    return [...latestByRepo.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([repository]) => repository);
+  }, [sessions]);
 
   useEffect(() => {
     setProvider(settings.defaultProvider);
@@ -297,6 +313,28 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             >
               Browse workspace…
             </button>
+            {recentWorkspaces.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div className="codex-help" style={{ marginBottom: 8 }}>Recent workspaces</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {recentWorkspaces.map((workspace) => (
+                    <button
+                      key={workspace}
+                      className="codex-button codex-button-secondary"
+                      onClick={() => {
+                        setRepository(workspace);
+                        setShowNewSession(true);
+                      }}
+                      style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {workspace}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="codex-help" style={{ marginTop: 8 }}>
               Tip: Ctrl/Cmd+Enter submits, Esc closes the form, Ctrl/Cmd+L focuses search.
             </div>
