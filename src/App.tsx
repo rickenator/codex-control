@@ -403,7 +403,11 @@ export default function App() {
               <div style={{ fontSize: 11, color: '#8b949e' }}>Ctrl/Cmd + 1, 2, 3</div>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <EventTimeline sessionId={selectedSession} compact />
+              <EventTimeline
+                sessionId={selectedSession}
+                compact
+                onCopySessionId={(value) => handleCopyText(value, 'Event ID')}
+              />
             </div>
           </section>
         </div>

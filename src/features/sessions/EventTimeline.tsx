@@ -11,6 +11,7 @@ interface Event {
 interface Props {
   sessionId: string | null;
   compact?: boolean;
+  onCopySessionId: (sessionId: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -34,7 +35,7 @@ const eventIcons: Record<string, string> = {
   output: '📝',
 };
 
-export default function EventTimeline({ sessionId, compact = false, onError }: Props) {
+export default function EventTimeline({ sessionId, compact = false, onCopySessionId, onError }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -106,6 +107,9 @@ export default function EventTimeline({ sessionId, compact = false, onError }: P
     }
   };
 
+  const lastEvent = events[events.length - 1];
+  const sessionLabel = sessionId ? `Session ${sessionId.slice(0, 8)}` : 'Session';
+
   if (!sessionId) {
     return (
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -119,16 +123,33 @@ export default function EventTimeline({ sessionId, compact = false, onError }: P
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: compact ? 'transparent' : '#0d1117' }}>
       {!compact && (
-        <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e' }}>
-          <span>Session: {sessionId}</span>
-          <button
-            className="codex-button codex-button-secondary"
-            onClick={handleReconnect}
-            disabled={isReconnecting}
-            style={{ color: '#58a6ff', cursor: isReconnecting ? 'not-allowed' : 'pointer' }}
-          >
-            {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
-          </button>
+        <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <span style={{ color: '#f0f6fc', fontWeight: 600 }}>
+              {sessionLabel}
+            </span>
+            <span>
+              {events.length} event{events.length === 1 ? '' : 's'}
+              {lastEvent ? ` · last ${formatRelativeTime(lastEvent.timestamp)}` : ''}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onCopySessionId(sessionId)}
+              style={{ color: '#58a6ff' }}
+            >
+              Copy ID
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={handleReconnect}
+              disabled={isReconnecting}
+              style={{ color: '#58a6ff', cursor: isReconnecting ? 'not-allowed' : 'pointer' }}
+            >
+              {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -145,20 +166,34 @@ export default function EventTimeline({ sessionId, compact = false, onError }: P
             key={event.id}
             style={{
               marginBottom: 12,
-              paddingLeft: 12,
+              padding: 12,
+              borderRadius: 12,
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.06)',
               borderLeft: `3px solid ${eventColors[event.type] || '#8b949e'}`,
+              boxShadow: index === events.length - 1 ? '0 8px 20px rgba(0,0,0,0.12)' : 'none',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 14 }}>{eventIcons[event.type] || '📝'}</span>
-              <span style={{ fontSize: 11, color: '#8b949e', textTransform: 'uppercase' }}>
-                {event.type}
-              </span>
-              <span style={{ fontSize: 10, color: '#484f58' }}>
-                {new Date(event.timestamp).toLocaleTimeString()}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ fontSize: 14 }}>{eventIcons[event.type] || '📝'}</span>
+                <span style={{ fontSize: 11, color: '#f0f6fc', textTransform: 'uppercase', fontWeight: 600 }}>
+                  {event.type}
+                </span>
+                <span style={{ fontSize: 10, color: '#8b949e' }}>
+                  {formatEventTime(event.timestamp)}
+                </span>
+              </div>
+              <button
+                className="codex-button codex-button-secondary"
+                style={{ padding: '4px 9px', fontSize: 11 }}
+                onClick={() => onCopySessionId(event.id)}
+                title="Copy event ID"
+              >
+                ID
+              </button>
             </div>
-            <div style={{ fontSize: 13, color: '#c9d1d9', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            <div style={{ fontSize: 13, color: '#c9d1d9', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5 }}>
               {event.content}
             </div>
           </div>
@@ -195,4 +230,22 @@ export default function EventTimeline({ sessionId, compact = false, onError }: P
       </div>
     </main>
   );
+}
+
+function formatEventTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatRelativeTime(timestamp: number) {
+  const delta = Date.now() - timestamp;
+  if (delta < 60_000) return 'just now';
+  const minutes = Math.round(delta / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
 }
