@@ -63,6 +63,7 @@ interface CodexAPI {
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => () => void;
   onNewSession: (callback: () => void) => () => void;
   copyText: (text: string) => Promise<boolean>;
+  testRemoteLlamaCpp: (config: { baseUrl: string; apiKey: string; model?: string }) => Promise<{ ok: boolean; message: string; models?: string[] }>;
   pickFolder: () => Promise<string | null>;
   openPath: (targetPath: string) => Promise<boolean>;
 }

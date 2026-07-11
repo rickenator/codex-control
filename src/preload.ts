@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld('codexApi', {
   },
   copyText: (text: string) =>
     ipcRenderer.invoke('ui:copy-text', text),
+  testRemoteLlamaCpp: (config: { baseUrl: string; apiKey: string; model?: string }) =>
+    ipcRenderer.invoke('ui:test-remote-llamacpp', config),
   pickFolder: () =>
     ipcRenderer.invoke('ui:pick-folder'),
   openPath: (targetPath: string) =>

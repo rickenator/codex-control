@@ -238,6 +238,20 @@ export default function App() {
     }
   };
 
+  const handleTestRemoteLlamaCpp = async (config: { baseUrl: string; model: string; apiKey: string }) => {
+    try {
+      const result = await window.codexApi.testRemoteLlamaCpp(config);
+      setNotice({
+        kind: result.ok ? 'success' : 'error',
+        message: result.message,
+      });
+      return result.ok;
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not test remote llama.cpp: ${(e as Error).message}` });
+      return false;
+    }
+  };
+
   return (
     <div className="codex-app-shell">
       {notice && (
@@ -289,6 +303,7 @@ export default function App() {
           onStartSession={handleStartSession}
           onReconnect={handleReconnect}
           onPickRepository={handlePickRepository}
+          onTestRemote={handleTestRemoteLlamaCpp}
           settings={settings}
           onSettingsChange={handleSettingsChange}
         />

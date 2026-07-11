@@ -26,6 +26,7 @@ interface Props {
   onStartSession: (options: NewSessionOptions) => void;
   onReconnect: (sessionId: string) => void;
   onPickRepository: () => Promise<string | null>;
+  onTestRemote: (config: { baseUrl: string; model: string; apiKey: string }) => Promise<boolean>;
   settings: {
     defaultProvider: 'default' | 'remote_llamacpp';
     remoteLlamaCpp: {
@@ -54,7 +55,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onTestRemote, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -197,6 +198,15 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               }}
             >
               Reset local draft
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={async () => {
+                await onTestRemote({ baseUrl, model, apiKey });
+              }}
+              disabled={!baseUrl.trim() || !model.trim()}
+            >
+              Test connection
             </button>
           </div>
         </div>

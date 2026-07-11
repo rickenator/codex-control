@@ -300,6 +300,50 @@ function normalizeBaseUrl(baseUrl: string) {
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 }
 
+async function testRemoteLlamaCpp(baseUrl: string, apiKey: string, model?: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${normalizedBaseUrl}/models`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey || 'llama.cpp'}`,
+      },
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `Server returned ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const payload = await response.json().catch(() => null) as { data?: Array<{ id?: string }>; } | null;
+    const knownModels = (payload?.data || []).map(entry => entry.id).filter(Boolean) as string[];
+    if (model && knownModels.length > 0 && !knownModels.includes(model)) {
+      return {
+        ok: true,
+        message: `Connected, but model ${model} is not listed in /models.`,
+      };
+    }
+
+    return {
+      ok: true,
+      message: `Connected to ${normalizedBaseUrl}.`,
+      models: knownModels,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown network error';
+    return {
+      ok: false,
+      message,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function gitHunks(repository: string, filePath: string) {
   const lines = gitDiff(repository, filePath).split('\n');
   const hunks: Array<{ id: number; header: string; content: string }> = [];
@@ -523,6 +567,9 @@ ipcMain.handle('ui:copy-text', (_event, text: string) => {
   } catch {
     return false;
   }
+});
+ipcMain.handle('ui:test-remote-llamacpp', (_event, config: { baseUrl: string; apiKey: string; model?: string }) => {
+  return testRemoteLlamaCpp(config.baseUrl, config.apiKey, config.model);
 });
 ipcMain.handle('ui:pick-folder', async () => {
   if (!mainWindow) return null;
