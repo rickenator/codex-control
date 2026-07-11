@@ -19,6 +19,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <map>
+#include <sys/ioctl.h>
 
 // ─── Event types ────────────────────────────────────────────────────────────
 
@@ -305,6 +307,9 @@ private:
     Napi::Value GitDiff(const Napi::CallbackInfo& info);
     Napi::Value GitBranch(const Napi::CallbackInfo& info);
     Napi::Value GitLog(const Napi::CallbackInfo& info);
+    Napi::Value GitDiffHunks(const Napi::CallbackInfo& info);
+    Napi::Value GitApplyHunk(const Napi::CallbackInfo& info);
+    Napi::Value GitRejectHunk(const Napi::CallbackInfo& info);
 
     // Event logging
     Napi::Value AppendEventLog(const Napi::CallbackInfo& info);
@@ -418,6 +423,9 @@ Napi::Object CodexAddon::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod("gitStatus", &CodexAddon::GitStatus),
         InstanceMethod("gitDiff", &CodexAddon::GitDiff),
         InstanceMethod("gitBranch", &CodexAddon::GitBranch),
+        InstanceMethod("gitDiffHunks", &CodexAddon::GitDiffHunks),
+        InstanceMethod("gitApplyHunk", &CodexAddon::GitApplyHunk),
+        InstanceMethod("gitRejectHunk", &CodexAddon::GitRejectHunk),
         InstanceMethod("gitLog", &CodexAddon::GitLog),
         InstanceMethod("appendEventLog", &CodexAddon::AppendEventLog),
         InstanceMethod("readEventLog", &CodexAddon::ReadEventLog),
@@ -634,4 +642,294 @@ Napi::Value CodexAddon::ReadEventLog(const Napi::CallbackInfo& info) {
     return Napi::String::New(env, ss.str());
 }
 
-NODE_API_MODULE(codex, CodexAddon::Init)
+
+// ─── Hunk-based diff operations ─────────────────────────────────────────────
+
+struct GitHunk {
+    int id;
+    int old_start;
+    int old_count;
+    int new_start;
+    int new_count;
+    std::string header;  // @@ -old_start,old_count +new_start,new_count @@
+    std::string content; // hunk body (lines starting with +, -, or space)
+};
+
+std::vector<GitHunk> git_diff_hunks(const std::string& repo_path, const std::string& file_path) {
+    std::vector<GitHunk> hunks;
+    
+    // Get the full diff
+    FILE* pipe = popen(("git -C \"" + repo_path + "\" diff -- \"" + file_path + "\" 2>/dev/null").c_str(), "r");
+    if (!pipe) return hunks;
+    
+    std::string full_diff;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        full_diff += buffer;
+    }
+    pclose(pipe);
+    
+    if (full_diff.empty()) return hunks;
+    
+    // Parse unified diff into hunks
+    std::istringstream stream(full_diff);
+    std::string line;
+    GitHunk current_hunk;
+    int hunk_id = 0;
+    
+    while (std::getline(stream, line)) {
+        // Check for hunk header: @@ -old_start,old_count +new_start,new_count @@
+        if (line.find("@@") == 0 && line.length() > 4) {
+            // Save previous hunk if exists
+            if (!current_hunk.content.empty()) {
+                hunks.push_back(current_hunk);
+                hunk_id++;
+            }
+            
+            // Start new hunk
+            current_hunk.id = hunk_id;
+            current_hunk.header = line;
+            current_hunk.content.clear();
+            
+            // Parse @@ -old_start,old_count +new_start,new_count @@
+            size_t first_at = line.find("@@");
+            size_t second_at = line.find("@@", first_at + 2);
+            if (second_at != std::string::npos) {
+                std::string range = line.substr(first_at + 2, second_at - first_at - 2);
+                // Parse old range: -start,count or -start
+                size_t comma = range.find(',');
+                if (comma != std::string::npos) {
+                    current_hunk.old_start = std::stoi(range.substr(1, comma - 1));
+                    current_hunk.old_count = std::stoi(range.substr(comma + 1));
+                } else {
+                    current_hunk.old_start = std::stoi(range.substr(1));
+                    current_hunk.old_count = 1;
+                }
+                
+                // Parse new range: +start,count or +start
+                std::string new_range = range.substr(comma + 1);
+                comma = new_range.find(',');
+                if (comma != std::string::npos) {
+                    current_hunk.new_start = std::stoi(new_range.substr(1, comma - 1));
+                    current_hunk.new_count = std::stoi(new_range.substr(comma + 1));
+                } else {
+                    current_hunk.new_start = std::stoi(new_range.substr(1));
+                    current_hunk.new_count = 1;
+                }
+            }
+        } else if (!current_hunk.header.empty()) {
+            // Hunk body line (starts with +, -, or space)
+            if (!line.empty() && (line[0] == '+' || line[0] == '-' || line[0] == ' ')) {
+                current_hunk.content += line + "\n";
+            }
+        }
+    }
+    
+    // Don't forget the last hunk
+    if (!current_hunk.content.empty()) {
+        hunks.push_back(current_hunk);
+    }
+    
+    return hunks;
+}
+
+std::string git_apply_hunk(const std::string& repo_path, const std::string& file_path, int hunk_id) {
+    // Extract the specific hunk and apply it
+    FILE* pipe = popen(("git -C \"" + repo_path + "\" diff -- \"" + file_path + "\" 2>/dev/null").c_str(), "r");
+    if (!pipe) return "Error: failed to get diff";
+    
+    std::string full_diff;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        full_diff += buffer;
+    }
+    pclose(pipe);
+    
+    // Parse and extract only the target hunk
+    std::istringstream stream(full_diff);
+    std::string line;
+    int current_id = 0;
+    bool found = false;
+    std::string selected_hunk;
+    
+    while (std::getline(stream, line)) {
+        if (line.find("@@") == 0 && line.length() > 4) {
+            if (current_id == hunk_id) {
+                found = true;
+                selected_hunk += line + "\n";
+            }
+            current_id++;
+        } else if (found && !line.empty() && (line[0] == '+' || line[0] == '-' || line[0] == ' ')) {
+            selected_hunk += line + "\n";
+        } else if (found && !line.empty() && line[0] != '+' && line[0] != '-' && line[0] != ' ') {
+            // Next hunk or diff header, stop
+            break;
+        }
+    }
+    
+    if (!found) return "Error: hunk not found";
+    
+    // Write to temp file and apply
+    std::string tmp_path = repo_path + "/.codex-control-hunk-" + std::to_string(hunk_id) + ".patch";
+    std::ofstream out(tmp_path);
+    if (!out.is_open()) return "Error: cannot write patch file";
+    out << selected_hunk;
+    out.close();
+    
+    // Apply the patch
+    FILE* apply_pipe = popen(("git -C \"" + repo_path + "\" apply -- \"" + tmp_path + "\" 2>&1").c_str(), "r");
+    if (!apply_pipe) {
+        unlink(tmp_path.c_str());
+        return "Error: failed to apply hunk";
+    }
+    
+    std::string result;
+    while (fgets(buffer, sizeof(buffer), apply_pipe)) {
+        result += buffer;
+    }
+    pclose(apply_pipe);
+    
+    // Clean up temp file
+    unlink(tmp_path.c_str());
+    
+    if (!result.empty()) return "Error: " + result;
+    return "OK";
+}
+
+std::string git_reject_hunk(const std::string& repo_path, const std::string& file_path, int hunk_id) {
+    // Get current file content, remove the rejected hunk's additions
+    FILE* pipe = popen(("git -C \"" + repo_path + "\" diff -- \"" + file_path + "\" 2>/dev/null").c_str(), "r");
+    if (!pipe) return "Error: failed to get diff";
+    
+    std::string full_diff;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        full_diff += buffer;
+    }
+    pclose(pipe);
+    
+    // Parse and create a patch that REJECTS the target hunk (inverts it)
+    std::istringstream stream(full_diff);
+    std::string line;
+    int current_id = 0;
+    bool in_target = false;
+    std::string inverted_hunk;
+    
+    while (std::getline(stream, line)) {
+        if (line.find("@@") == 0 && line.length() > 4) {
+            if (current_id == hunk_id) {
+                in_target = true;
+                // Invert the hunk header: swap old and new ranges
+                size_t first_at = line.find("@@");
+                size_t second_at = line.find("@@", first_at + 2);
+                if (second_at != std::string::npos) {
+                    std::string range = line.substr(first_at + 2, second_at - first_at - 2);
+                    inverted_hunk = "@@ " + range + " @@";
+                } else {
+                    inverted_hunk = line;
+                }
+            } else if (current_id != hunk_id) {
+                // Skip non-target hunks entirely
+            }
+            current_id++;
+        } else if (in_target && !line.empty() && (line[0] == '+' || line[0] == '-' || line[0] == ' ')) {
+            // Invert: + becomes -, - becomes +, space stays space
+            char inverted = line[0];
+            if (line[0] == '+') inverted = '-';
+            else if (line[0] == '-') inverted = '+';
+            
+            // For context lines (space), keep them but mark the removed lines
+            if (line[0] == ' ') {
+                inverted_hunk += " " + line.substr(1) + "\n";
+            } else {
+                inverted_hunk += inverted + line.substr(1) + "\n";
+            }
+        } else if (in_target && !line.empty() && line[0] != '+' && line[0] != '-' && line[0] != ' ') {
+            // Next section, stop
+            break;
+        }
+    }
+    
+    if (inverted_hunk.empty()) return "Error: hunk not found";
+    
+    // Write inverted patch and apply it
+    std::string tmp_path = repo_path + "/.codex-control-reject-" + std::to_string(hunk_id) + ".patch";
+    std::ofstream out(tmp_path);
+    if (!out.is_open()) return "Error: cannot write patch file";
+    out << inverted_hunk;
+    out.close();
+    
+    // Apply the inverted patch
+    FILE* apply_pipe = popen(("git -C \"" + repo_path + "\" apply -- \"" + tmp_path + "\" 2>&1").c_str(), "r");
+    if (!apply_pipe) {
+        unlink(tmp_path.c_str());
+        return "Error: failed to reject hunk";
+    }
+    
+    std::string result;
+    while (fgets(buffer, sizeof(buffer), apply_pipe)) {
+        result += buffer;
+    }
+    pclose(apply_pipe);
+    
+    unlink(tmp_path.c_str());
+    
+    if (!result.empty()) return "Error: " + result;
+    return "OK";
+}
+
+// ─── N-API bindings for hunk operations ─────────────────────────────────────
+
+Napi::Value CodexAddon::GitDiffHunks(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 2) {
+        throw Napi::Error::New(env, "Usage: gitDiffHunks(repoPath, filePath)");
+    }
+
+    std::string repo_path = info[0].As<Napi::String>().Utf8Value();
+    std::string file_path = info[1].As<Napi::String>().Utf8Value();
+    auto hunks = git_diff_hunks(repo_path, file_path);
+
+    Napi::Array arr = Napi::Array::New(env, hunks.size());
+    for (size_t i = 0; i < hunks.size(); i++) {
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("id", Napi::Number::New(env, static_cast<double>(hunks[i].id)));
+        obj.Set("oldStart", Napi::Number::New(env, static_cast<double>(hunks[i].old_start)));
+        obj.Set("oldCount", Napi::Number::New(env, static_cast<double>(hunks[i].old_count)));
+        obj.Set("newStart", Napi::Number::New(env, static_cast<double>(hunks[i].new_start)));
+        obj.Set("newCount", Napi::Number::New(env, static_cast<double>(hunks[i].new_count)));
+        obj.Set("header", Napi::String::New(env, hunks[i].header));
+        obj.Set("content", Napi::String::New(env, hunks[i].content));
+        arr.Set(i, obj);
+    }
+
+    return arr;
+}
+
+Napi::Value CodexAddon::GitApplyHunk(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 3) {
+        throw Napi::Error::New(env, "Usage: gitApplyHunk(repoPath, filePath, hunkId)");
+    }
+
+    std::string repo_path = info[0].As<Napi::String>().Utf8Value();
+    std::string file_path = info[1].As<Napi::String>().Utf8Value();
+    int hunk_id = info[2].As<Napi::Number>().Int32Value();
+
+    auto result = git_apply_hunk(repo_path, file_path, hunk_id);
+    return Napi::String::New(env, result);
+}
+
+Napi::Value CodexAddon::GitRejectHunk(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 3) {
+        throw Napi::Error::New(env, "Usage: gitRejectHunk(repoPath, filePath, hunkId)");
+    }
+
+    std::string repo_path = info[0].As<Napi::String>().Utf8Value();
+    std::string file_path = info[1].As<Napi::String>().Utf8Value();
+    int hunk_id = info[2].As<Napi::Number>().Int32Value();
+
+    auto result = git_reject_hunk(repo_path, file_path, hunk_id);
+    return Napi::String::New(env, result);
+}

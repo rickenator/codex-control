@@ -7,29 +7,44 @@ import ApprovalQueue from './features/approvals/ApprovalQueue';
 
 type Tab = 'terminal' | 'diff' | 'approvals';
 
+type AppSettings = {
+  defaultProvider: 'default' | 'remote_llamacpp';
+  remoteLlamaCpp: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
+};
+
+const defaultSettings: AppSettings = {
+  defaultProvider: 'remote_llamacpp',
+  remoteLlamaCpp: {
+    baseUrl: 'http://192.168.1.240:8081',
+    model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
+    apiKey: 'llama.cpp',
+  },
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('terminal');
   const [sessions, setSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
 
   useEffect(() => {
-    // Load sessions on mount
     window.codexApi.listSessions().then(setSessions);
+    window.codexApi.getSettings().then((loaded: AppSettings) => setSettings(loaded)).catch(() => {});
 
-    // Listen for session recovery notifications
     const unsubscribeRecovery = window.codexApi.onSessionsRecovered((sessionIds: string[]) => {
       setRecoveredSessions(sessionIds);
-      // Auto-select the first recovered session if none is selected
       if (!selectedSession && sessionIds.length > 0) {
         setSelectedSession(sessionIds[0]);
       }
     });
 
-    // Listen for approval requests
     const unsubscribeApproval = window.codexApi.onApprovalRequest(() => {
-      // Refresh pending count
       window.codexApi.getPendingApprovals().then((approvals: any[]) => {
         setPendingApprovalCount(approvals.length);
       });
@@ -41,10 +56,20 @@ export default function App() {
     };
   }, [selectedSession]);
 
-  const handleStartSession = async () => {
+  const activeSession = sessions.find(session => session.id === selectedSession);
+
+  const handleStartSession = async (options: {
+    repository?: string;
+    branch?: string;
+    provider?: 'default' | 'remote_llamacpp';
+    remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+  }) => {
     try {
-      const result = await window.codexApi.startSession({});
-      // Refresh session list
+      const result = await window.codexApi.startSession(options);
       const updated = await window.codexApi.listSessions();
       setSessions(updated);
       setSelectedSession(result.sessionId);
@@ -71,41 +96,42 @@ export default function App() {
 
   const handleReject = async (id: string) => {
     await window.codexApi.rejectCommand(id);
-    // Refresh pending count
     const approvals = await window.codexApi.getPendingApprovals();
     setPendingApprovalCount(approvals.length);
   };
 
+  const handleSettingsChange = async (nextSettings: AppSettings) => {
+    setSettings(nextSettings);
+    const saved = await window.codexApi.updateSettings(nextSettings);
+    setSettings(saved);
+  };
+
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', background: '#0d1117', color: '#c9d1d9' }}>
-      {/* Recovery banner */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', background: '#0b1020', color: '#c9d1d9' }}>
       {recoveredSessions.length > 0 && (
         <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 280,
-          right: 420,
-          background: '#1a3a5c',
-          border: '1px solid #58a6ff',
-          borderRadius: '0 0 8px 8px',
+          margin: '12px 12px 0',
+          background: 'rgba(88, 166, 255, 0.12)',
+          border: '1px solid rgba(88, 166, 255, 0.35)',
+          borderRadius: 10,
           padding: '8px 16px',
-          zIndex: 1000,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: 12,
         }}>
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
             {recoveredSessions.length} session(s) recovered from previous session
           </span>
-          <button
-            onClick={() => setRecoveredSessions([])}
-            style={{
-              padding: '4px 8px',
-              background: '#21262d',
-              border: '1px solid #30363d',
-              borderRadius: 4,
-              color: '#8b949e',
-              fontSize: 11,
+            <button
+              onClick={() => setRecoveredSessions([])}
+              style={{
+                padding: '4px 8px',
+                background: 'rgba(13, 17, 23, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 4,
+                color: '#8b949e',
+                fontSize: 11,
               cursor: 'pointer',
             }}
           >
@@ -114,67 +140,171 @@ export default function App() {
         </div>
       )}
 
-      {/* Left: Session list */}
-      <SessionList
-        sessions={sessions}
-        selected={selectedSession}
-        onSelect={setSelectedSession}
-        onStartSession={handleStartSession}
-        onReconnect={handleReconnect}
-      />
+      <header style={{
+        margin: '12px',
+        padding: '12px 16px',
+        borderRadius: 14,
+        background: 'rgba(13, 17, 23, 0.82)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 16,
+        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.25)',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Codex Control</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: '#f0f6fc' }}>
+            {activeSession?.repository || 'No session selected'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'} />
+          <Pill label="Model" value={settings.remoteLlamaCpp.model} />
+          <Pill label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
+          {activeSession?.status && <Pill label="Session" value={activeSession.status} />}
+        </div>
+      </header>
 
-      {/* Center: Event timeline */}
-      <EventTimeline sessionId={selectedSession} />
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 12, padding: '0 12px 12px' }}>
+        <SessionList
+          sessions={sessions}
+          selected={selectedSession}
+          onSelect={setSelectedSession}
+          onStartSession={handleStartSession}
+          onReconnect={handleReconnect}
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+        />
 
-      {/* Right: Terminal / Diff / Approvals tabs */}
-      <aside style={{ width: 420, borderLeft: '1px solid #21262d', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', borderBottom: '1px solid #21262d' }}>
-          {(['terminal', 'diff', 'approvals'] as Tab[]).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                flex: 1, padding: '8px 0', background: activeTab === tab ? '#161b22' : 'transparent',
-                border: 'none', color: activeTab === tab ? '#58a6ff' : '#8b949e',
-                cursor: 'pointer', fontSize: 13, fontWeight: 500, textTransform: 'capitalize',
-                position: 'relative',
-              }}
-            >
-              {tab}
-              {tab === 'approvals' && pendingApprovalCount > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: 4,
-                  right: 8,
-                  background: '#f85149',
-                  color: '#fff',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  borderRadius: '50%',
-                  width: 16,
-                  height: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  {pendingApprovalCount}
-                </span>
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) 420px',
+          gap: 12,
+        }}>
+          <section style={{
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 14,
+            background: 'rgba(13, 17, 23, 0.82)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              padding: '10px 14px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 12, color: '#8b949e' }}>Session console</span>
+                <span style={{ fontSize: 13, color: '#f0f6fc' }}>{selectedSession || 'Select a session'}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {(['terminal', 'diff', 'approvals'] as Tab[]).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    style={{
+                      padding: '6px 10px',
+                      background: activeTab === tab ? 'rgba(88, 166, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: 999,
+                      color: activeTab === tab ? '#58a6ff' : '#8b949e',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      textTransform: 'capitalize',
+                      position: 'relative',
+                    }}
+                  >
+                    {tab}
+                    {tab === 'approvals' && pendingApprovalCount > 0 && (
+                      <span style={{
+                        marginLeft: 6,
+                        background: '#f85149',
+                        color: '#fff',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: '50%',
+                        width: 16,
+                        height: 16,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        {pendingApprovalCount}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              {activeTab === 'terminal' && <TerminalPane sessionId={selectedSession} compact />}
+              {activeTab === 'diff' && <DiffViewer sessionId={selectedSession} repository={activeSession?.repository} />}
+              {activeTab === 'approvals' && (
+                <ApprovalQueue
+                  sessionId={selectedSession}
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                />
               )}
-            </button>
-          ))}
+            </div>
+          </section>
+
+          <section style={{
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 14,
+            background: 'rgba(13, 17, 23, 0.82)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              padding: '10px 14px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 12, color: '#8b949e' }}>Conversation</span>
+                <span style={{ fontSize: 13, color: '#f0f6fc' }}>Prompt, response, tools</span>
+              </div>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <EventTimeline sessionId={selectedSession} compact />
+            </div>
+          </section>
         </div>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          {activeTab === 'terminal' && <TerminalPane sessionId={selectedSession} />}
-          {activeTab === 'diff' && <DiffViewer sessionId={selectedSession} />}
-          {activeTab === 'approvals' && (
-            <ApprovalQueue
-              sessionId={selectedSession}
-              onApprove={handleApprove}
-              onReject={handleReject}
-            />
-          )}
-        </div>
-      </aside>
+      </div>
+    </div>
+  );
+}
+
+function Pill({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '6px 10px',
+      borderRadius: 999,
+      background: 'rgba(255, 255, 255, 0.03)',
+      border: '1px solid rgba(255, 255, 255, 0.08)',
+      color: '#c9d1d9',
+      fontSize: 12,
+      maxWidth: '100%',
+    }}>
+      <span style={{ color: '#8b949e' }}>{label}</span>
+      <span style={{ color: '#f0f6fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
     </div>
   );
 }

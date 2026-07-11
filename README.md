@@ -49,6 +49,16 @@ npm run build:native
 npm run dev:all
 ```
 
+## Remote llama.cpp
+
+The new session drawer can launch Codex against a remote `llama-server` endpoint directly.
+
+- Select `Remote llama.cpp` in the new-session panel.
+- Enter the server base URL, such as `http://192.168.1.240:8081`.
+- Enter the model name used by that server.
+- Leave the API key as the default `llama.cpp` unless your server expects something else.
+- The app passes the required Codex provider overrides, including `wire_api = "responses"`, for the spawned session.
+
 ## Repository layout
 
 ```

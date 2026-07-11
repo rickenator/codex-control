@@ -2,7 +2,16 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('codexApi', {
   // Sessions
-  startSession: (opts: { repository?: string; branch?: string; provider?: string }) =>
+  startSession: (opts: {
+    repository?: string;
+    branch?: string;
+    provider?: 'default' | 'remote_llamacpp';
+    remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+  }) =>
     ipcRenderer.invoke('session:start', opts),
   stopSession: (sessionId: string) =>
     ipcRenderer.invoke('session:stop', sessionId),
@@ -10,10 +19,25 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('session:list'),
   getSessionEvents: (sessionId: string) =>
     ipcRenderer.invoke('session:events', sessionId),
+  getTerminalBuffer: (sessionId: string) =>
+    ipcRenderer.invoke('session:terminal-buffer', sessionId),
   sendInput: (sessionId: string, input: string) =>
     ipcRenderer.invoke('session:send-input', { sessionId, input }),
+  resizeTerminal: (sessionId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('session:resize', { sessionId, cols, rows }),
   reconnectSession: (sessionId: string) =>
     ipcRenderer.invoke('session:reconnect', sessionId),
+  getSettings: () =>
+    ipcRenderer.invoke('settings:get'),
+  updateSettings: (settings: {
+    defaultProvider?: 'default' | 'remote_llamacpp';
+    remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+  }) =>
+    ipcRenderer.invoke('settings:update', settings),
 
   // Git
   gitStatus: (repoPath: string) =>
@@ -23,11 +47,24 @@ contextBridge.exposeInMainWorld('codexApi', {
   gitBranch: (repoPath: string) =>
     ipcRenderer.invoke('git:branch', repoPath),
 
+
+  // Git hunks
+  gitDiffHunks: (repoPath: string, filePath: string) =>
+    ipcRenderer.invoke('git:hunks', repoPath, filePath),
+  gitApplyHunk: (repoPath: string, filePath: string, hunkId: number) =>
+    ipcRenderer.invoke('git:apply-hunk', repoPath, filePath, hunkId),
+  gitRejectHunk: (repoPath: string, filePath: string, hunkId: number) =>
+    ipcRenderer.invoke('git:reject-hunk', repoPath, filePath, hunkId),
   // Events (streaming)
   onEvent: (callback: (event: any) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
     ipcRenderer.on('codex:event', handler);
     return () => ipcRenderer.removeListener('codex:event', handler);
+  },
+  onTerminalOutput: (callback: (output: { sessionId: string; data: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, output: { sessionId: string; data: string }) => callback(output);
+    ipcRenderer.on('codex:terminal-output', handler);
+    return () => ipcRenderer.removeListener('codex:terminal-output', handler);
   },
 
   // Session recovery notifications

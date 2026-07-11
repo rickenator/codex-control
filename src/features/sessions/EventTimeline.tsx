@@ -10,6 +10,7 @@ interface Event {
 
 interface Props {
   sessionId: string | null;
+  compact?: boolean;
 }
 
 const eventColors: Record<string, string> = {
@@ -32,7 +33,7 @@ const eventIcons: Record<string, string> = {
   output: '📝',
 };
 
-export default function EventTimeline({ sessionId }: Props) {
+export default function EventTimeline({ sessionId, compact = false }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -52,7 +53,7 @@ export default function EventTimeline({ sessionId }: Props) {
 
     // Subscribe to new events
     const unsubscribe = window.codexApi.onEvent((event: Event) => {
-      setEvents(prev => [...prev, event]);
+      if (event.session_id === sessionId) setEvents(prev => [...prev, event]);
     });
 
     return () => unsubscribe();
@@ -84,7 +85,7 @@ export default function EventTimeline({ sessionId }: Props) {
 
     setIsSending(true);
     try {
-      await window.codexApi.sendInput(sessionId, input.trim());
+      await window.codexApi.sendInput(sessionId, input.trim() + '\n');
       setInput('');
     } catch (e) {
       console.error('Failed to send input:', e);
@@ -102,40 +103,39 @@ export default function EventTimeline({ sessionId }: Props) {
 
   if (!sessionId) {
     return (
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e' }}>
-          Select a session to view events
-        </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#484f58', fontSize: 13 }}>
-          No session selected. Start or connect to a Codex session to see the event timeline here.
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#484f58', fontSize: 13, padding: 16 }}>
+          No session selected. Start a session to see the timeline here.
         </div>
       </main>
     );
   }
 
   return (
-    <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Session: {sessionId}</span>
-        <button
-          onClick={handleReconnect}
-          disabled={isReconnecting}
-          style={{
-            padding: '4px 8px',
-            background: '#21262d',
-            border: '1px solid #30363d',
-            borderRadius: 4,
-            color: '#58a6ff',
-            fontSize: 11,
-            cursor: isReconnecting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
-        </button>
-      </div>
+    <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: compact ? 'transparent' : '#0d1117' }}>
+      {!compact && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Session: {sessionId}</span>
+          <button
+            onClick={handleReconnect}
+            disabled={isReconnecting}
+            style={{
+              padding: '4px 8px',
+              background: '#21262d',
+              border: '1px solid #30363d',
+              borderRadius: 4,
+              color: '#58a6ff',
+              fontSize: 11,
+              cursor: isReconnecting ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
+          </button>
+        </div>
+      )}
 
       {/* Event timeline */}
-      <div ref={timelineRef} style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+      <div ref={timelineRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? '12px 14px' : 16 }}>
         {events.length === 0 && (
           <div style={{ color: '#484f58', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
             No events yet. Send a message to start the conversation.
@@ -168,7 +168,7 @@ export default function EventTimeline({ sessionId }: Props) {
       </div>
 
       {/* Input area */}
-      <div style={{ padding: 12, borderTop: '1px solid #21262d', background: '#161b22' }}>
+      <div style={{ padding: 12, borderTop: compact ? '1px solid rgba(255,255,255,0.08)' : '1px solid #21262d', background: compact ? 'rgba(255,255,255,0.02)' : '#161b22' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"

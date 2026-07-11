@@ -1,46 +1,83 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
-import { spawn, ChildProcess } from 'child_process';
-import * as Database from 'better-sqlite3';
+import fs from 'fs';
+import { execFileSync } from 'child_process';
 
-// Load native C++ addon
-const codexAddon = require('../native/build/Release/codex.node');
+const pty: any = require('node-pty');
 
-let mainWindow: BrowserWindow | null = null;
-let db: Database.Database | null = null;
+type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
 
-// Session state
 interface SessionState {
   id: string;
-  process: ChildProcess | null;
+  pty: any;
+  repository: string;
+  branch: string;
+  status: SessionStatus;
+  terminalBuffer: string;
+}
+
+interface SessionOptions {
   repository?: string;
   branch?: string;
-  status: 'idle' | 'running' | 'awaiting_approval' | 'paused' | 'failed' | 'completed';
-  events: any[];
-  lastEventTimestamp: number;
-  ptyFd: number;
+  codexPath?: string;
+  provider?: 'default' | 'remote_llamacpp';
+  remoteLlamaCpp?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
 }
 
-const sessions: Map<string, SessionState> = new Map();
-
-// Approval queue — shared across all sessions
-interface ApprovalRequest {
+interface SessionRecord {
   id: string;
-  sessionId: string;
-  command: string;
-  workingDir: string;
-  sandboxPolicy: string;
-  affectedPaths: string[];
-  timestamp: number;
-  status: 'pending' | 'approved' | 'rejected';
+  repository: string;
+  branch: string;
+  provider?: 'default' | 'remote_llamacpp';
+  model?: string;
+  baseUrl?: string;
+  status: SessionStatus;
+  created_at: number;
+  updated_at: number;
 }
 
-const approvalQueue: ApprovalRequest[] = [];
+interface AppSettings {
+  defaultProvider: 'default' | 'remote_llamacpp';
+  remoteLlamaCpp: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
+}
+
+interface CodexEvent {
+  id: string;
+  session_id: string;
+  type: string;
+  content: string;
+  timestamp: number;
+}
+
+let mainWindow: BrowserWindow | null = null;
+let storePath = '';
+let settingsPath = '';
+let appSettings: AppSettings = {
+  defaultProvider: 'remote_llamacpp',
+  remoteLlamaCpp: {
+    baseUrl: 'http://192.168.1.240:8081',
+    model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
+    apiKey: 'llama.cpp',
+  },
+};
+const sessions = new Map<string, SessionState>();
+const records = new Map<string, SessionRecord>();
+const events = new Map<string, CodexEvent[]>();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: 1440,
+    height: 920,
+    minWidth: 960,
+    minHeight: 640,
     title: 'Codex Control',
     webPreferences: {
       nodeIntegration: false,
@@ -48,376 +85,272 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-
-  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'renderer', 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-function initDatabase() {
-  const dbPath = path.join(app.getPath('userData'), 'codex-control.db');
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      repository TEXT,
-      branch TEXT,
-      status TEXT DEFAULT 'idle',
-      created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-      updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-    );
-
-    CREATE TABLE IF NOT EXISTS events (
-      id TEXT PRIMARY KEY,
-      session_id TEXT REFERENCES sessions(id),
-      event_type TEXT,
-      timestamp INTEGER,
-      payload TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, timestamp);
-
-    CREATE TABLE IF NOT EXISTS approvals (
-      id TEXT PRIMARY KEY,
-      session_id TEXT REFERENCES sessions(id),
-      command TEXT,
-      working_dir TEXT,
-      sandbox_policy TEXT DEFAULT 'on-request',
-      affected_paths TEXT,
-      status TEXT DEFAULT 'pending',
-      created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-    );
-
-    CREATE TABLE IF NOT EXISTS provider_profiles (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      base_url TEXT,
-      api_key_ref TEXT,
-      model TEXT,
-      is_active INTEGER DEFAULT 0
-    );
-  `);
+function saveStore() {
+  if (!storePath) return;
+  fs.writeFileSync(storePath, JSON.stringify({
+    sessions: [...records.values()],
+    events: Object.fromEntries(events),
+  }));
 }
 
-// ─── Codex session management ───────────────────────────────────────────────
-
-function startCodexSession(sessionId: string, opts: {
-  codexPath?: string;
-  repoPath?: string;
-  branch?: string;
-  provider?: string;
-}): { sessionId: string; pid: number } {
-  const codexPath = opts.codexPath || 'codex';
-  const repoPath = opts.repoPath || process.cwd();
-
-  // Use native addon to spawn process
-  const result = codexAddon.startSession(sessionId, {
-    codexPath,
-    repoPath,
-  });
-
-  // Create session state
-  const sessionState: SessionState = {
-    id: sessionId,
-    process: null,
-    repository: opts.repoPath,
-    branch: opts.branch,
-    status: 'running',
-    events: [],
-    lastEventTimestamp: Date.now(),
-    ptyFd: result.ptyFd || 0,
-  };
-
-  sessions.set(sessionId, sessionState);
-
-  // Update database
-  if (db) {
-    db.prepare(`INSERT OR REPLACE INTO sessions (id, repository, branch, status) VALUES (?, ?, ?, ?)`).run(
-      sessionId,
-      opts.repoPath || '',
-      opts.branch || '',
-      'running'
-    );
-  }
-
-  return result;
+function saveSettings() {
+  if (!settingsPath) return;
+  fs.writeFileSync(settingsPath, JSON.stringify(appSettings, null, 2));
 }
 
-function stopCodexSession(sessionId: string): boolean {
-  codexAddon.stopSession(sessionId);
-  sessions.delete(sessionId);
-
-  if (db) {
-    db.prepare(`UPDATE sessions SET status = 'stopped', updated_at = ? WHERE id = ?`).run(
-      Date.now(), sessionId
-    );
-  }
-
-  return true;
-}
-
-// ─── Approval management ────────────────────────────────────────────────────
-
-function addApprovalRequest(approval: Omit<ApprovalRequest, 'id' | 'timestamp'>): string {
-  const id = `approval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const fullApproval: ApprovalRequest = {
-    ...approval,
-    id,
-    timestamp: Date.now(),
-    status: 'pending',
-  };
-
-  approvalQueue.push(fullApproval);
-
-  // Persist to database
-  if (db) {
-    db.prepare(`INSERT INTO approvals (id, session_id, command, working_dir, sandbox_policy, affected_paths, status) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-      id,
-      approval.sessionId,
-      approval.command,
-      approval.workingDir,
-      approval.sandboxPolicy,
-      JSON.stringify(approval.affectedPaths),
-      'pending'
-    );
-  }
-
-  // Emit to renderer
-  mainWindow?.webContents.send('codex:approval-request', fullApproval);
-
-  return id;
-}
-
-function processApproval(approvalId: string, approved: boolean): boolean {
-  const approval = approvalQueue.find(a => a.id === approvalId && a.status === 'pending');
-  if (!approval) return false;
-
-  approval.status = approved ? 'approved' : 'rejected';
-
-  // Update database
-  if (db) {
-    db.prepare(`UPDATE approvals SET status = ? WHERE id = ?`).run(
-      approval.status, approvalId
-    );
-  }
-
-  // Emit to renderer
-  mainWindow?.webContents.send('codex:approval-processed', { id: approvalId, approved });
-
-  return true;
-}
-
-// ─── Session recovery ───────────────────────────────────────────────────────
-
-function recoverSessions() {
-  if (!db) return [];
-
-  // Load all sessions from database
-  const allSessions = db.prepare(`SELECT * FROM sessions ORDER BY updated_at DESC`).all();
-  const recovered: string[] = [];
-
-  for (const sessionRow of allSessions as any[]) {
-    // Check if the session is still running by querying the native addon
-    const isRunning = codexAddon.isSessionRunning(sessionRow.id);
-
-    if (isRunning) {
-      // Session is still active — load its events from the database
-      const events = db.prepare(`SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC`).all(sessionRow.id);
-
-      const sessionState: SessionState = {
-        id: sessionRow.id,
-        process: null,
-        repository: sessionRow.repository || undefined,
-        branch: sessionRow.branch || undefined,
-        status: sessionRow.status as any,
-        events: events.map((e: any) => JSON.parse(e.payload)),
-        lastEventTimestamp: Date.now(),
-        ptyFd: 0,
-      };
-
-      sessions.set(sessionRow.id, sessionState);
-      recovered.push(sessionRow.id);
-
-      // Emit recovered events to renderer
-      for (const event of sessionState.events) {
-        mainWindow?.webContents.send('codex:event', event);
-      }
-    } else {
-      // Session is no longer running — mark as failed/stopped
-      db.prepare(`UPDATE sessions SET status = 'failed', updated_at = ? WHERE id = ?`).run(
-        Date.now(), sessionRow.id
-      );
-    }
-  }
-
-  return recovered;
-}
-
-// ─── Event persistence helper ───────────────────────────────────────────────
-
-function persistEvent(sessionId: string, event: any) {
-  if (!db) return;
-
-  // Store in SQLite
-  db.prepare(`INSERT INTO events (id, session_id, event_type, timestamp, payload) VALUES (?, ?, ?, ?, ?)`).run(
-    event.id,
-    sessionId,
-    event.type,
-    event.timestamp,
-    JSON.stringify(event)
-  );
-
-  // Also append to JSONL log file for crash recovery
-  const logPath = path.join(app.getPath('userData'), 'events', `${sessionId}.jsonl`);
+function initStore() {
+  storePath = path.join(app.getPath('userData'), 'codex-control-sessions.json');
   try {
-    const fs = require('fs');
-    const logDir = path.dirname(logPath);
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
+    const saved = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    for (const record of saved.sessions || []) {
+      records.set(record.id, record);
     }
-    fs.appendFileSync(logPath, JSON.stringify(event) + '\n');
-  } catch (e) {
-    console.error('Failed to append event log:', e);
+    for (const [sessionId, savedEvents] of Object.entries(saved.events || {})) {
+      events.set(sessionId, savedEvents as CodexEvent[]);
+    }
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') console.error('Could not read saved sessions:', error);
   }
+  for (const record of records.values()) {
+    if (record.status === 'running') record.status = 'stopped';
+  }
+  saveStore();
 }
 
-// ─── IPC handlers ───────────────────────────────────────────────────────────
+function initSettings() {
+  settingsPath = path.join(app.getPath('userData'), 'codex-control-settings.json');
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as Partial<AppSettings>;
+    appSettings = {
+      defaultProvider: saved.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
+      remoteLlamaCpp: {
+        baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
+        model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
+        apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+      },
+    };
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') console.error('Could not read settings:', error);
+  }
+  saveSettings();
+}
 
-ipcMain.handle('session:start', async (_event, opts) => {
-  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  return startCodexSession(sessionId, opts);
-});
-
-ipcMain.handle('session:stop', async (_event, sessionId) => {
-  return stopCodexSession(sessionId);
-});
-
-ipcMain.handle('session:list', async () => {
-  if (!db) return [];
-  return db.prepare(`SELECT * FROM sessions ORDER BY updated_at DESC`).all();
-});
-
-ipcMain.handle('session:events', (_event, sessionId: string) => {
-  const session = sessions.get(sessionId);
-  return session?.events || [];
-});
-
-ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId: string; input: string }) => {
-  const session = sessions.get(sessionId);
-  if (!session) return false;
-
-  // Send input to the Codex process via native addon
-  codexAddon.sendInput(sessionId, input);
-
-  // Record event
+function recordEvent(sessionId: string, type: string, content: string) {
   const event = {
-    id: `evt_${Date.now()}`,
-    type: 'prompt',
-    content: input,
-    timestamp: Date.now(),
+    id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     session_id: sessionId,
+    type,
+    content,
+    timestamp: Date.now(),
   };
-
-  session.events.push(event);
-  persistEvent(sessionId, event);
-
-  // Emit event to renderer
+  if (type !== 'output') {
+    const sessionEvents = events.get(sessionId) || [];
+    sessionEvents.push(event);
+    events.set(sessionId, sessionEvents.slice(-500));
+    saveStore();
+  }
   mainWindow?.webContents.send('codex:event', event);
+  return event;
+}
 
-  return true;
-});
+function terminalOutput(sessionId: string, data: string) {
+  const state = sessions.get(sessionId);
+  if (state) state.terminalBuffer = (state.terminalBuffer + data).slice(-1_000_000);
+  mainWindow?.webContents.send('codex:terminal-output', { sessionId, data });
+}
 
-ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
-  // Reconnect to a session by replaying its event log
-  if (!db) return false;
+function getBranch(repository: string) {
+  try {
+    return git(repository, ['branch', '--show-current']).trim();
+  } catch {
+    return '';
+  }
+}
 
-  const events = db.prepare(`SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC`).all(sessionId);
-  const sessionState: SessionState = {
-    id: sessionId,
-    process: null,
-    repository: '',
-    branch: '',
-    status: 'running',
-    events: events.map((e: any) => JSON.parse(e.payload)),
-    lastEventTimestamp: Date.now(),
-    ptyFd: 0,
+function git(repository: string, args: string[]) {
+  return execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function gitStatus(repository: string) {
+  return git(repository, ['status', '--porcelain']).split('\n').filter(Boolean).map(line => ({
+    x: line[0] || ' ',
+    y: line[1] || ' ',
+    path: line.slice(3),
+  }));
+}
+
+function gitDiff(repository: string, filePath: string) {
+  return git(repository, ['diff', '--', filePath]);
+}
+
+function quoteTomlString(value: string) {
+  return JSON.stringify(value);
+}
+
+function normalizeBaseUrl(baseUrl: string) {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+}
+
+function gitHunks(repository: string, filePath: string) {
+  const lines = gitDiff(repository, filePath).split('\n');
+  const hunks: Array<{ id: number; header: string; content: string }> = [];
+  let current: { id: number; header: string; content: string } | null = null;
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) {
+      if (current) hunks.push(current);
+      current = { id: hunks.length, header: line, content: '' };
+    } else if (current) {
+      current.content += line + '\n';
+    }
+  }
+  if (current) hunks.push(current);
+  return hunks;
+}
+
+function startSession(options: SessionOptions) {
+  const repository = path.resolve(options.repository || process.cwd());
+  if (!fs.statSync(repository).isDirectory()) {
+    throw new Error(`Workspace is not a directory: ${repository}`);
+  }
+
+  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const branch = options.branch || getBranch(repository);
+  const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
+  const args = ['--no-alt-screen', '-C', repository];
+  const env = { ...process.env };
+  const provider = options.provider || appSettings.defaultProvider;
+  const resolvedRemote = {
+    baseUrl: options.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
+    model: options.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
+    apiKey: options.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
   };
 
-  sessions.set(sessionId, sessionState);
+  if (provider === 'remote_llamacpp') {
+    if (!resolvedRemote.baseUrl) {
+      throw new Error('Remote llama.cpp base URL is required');
+    }
+    if (!resolvedRemote.model) {
+      throw new Error('Remote llama.cpp model is required');
+    }
 
-  // Emit recovered events to renderer
-  for (const event of sessionState.events) {
-    mainWindow?.webContents.send('codex:event', event);
+    const normalizedBaseUrl = normalizeBaseUrl(resolvedRemote.baseUrl);
+    const apiKey = resolvedRemote.apiKey || 'llama.cpp';
+
+    env.OPENAI_BASE_URL = normalizedBaseUrl;
+    env.OPENAI_API_BASE = normalizedBaseUrl;
+    env.OPENAI_API_KEY = apiKey;
+    env.OPENAI_MODEL = resolvedRemote.model;
+    env.CODEX_OSS_BASE_URL = normalizedBaseUrl;
+
+    args.push(
+      '-c', `model=${quoteTomlString(resolvedRemote.model)}`,
+      '-c', 'model_provider="remote_llamacpp"',
+      '-c', 'model_providers.remote_llamacpp.name="Remote llama.cpp"',
+      '-c', `model_providers.remote_llamacpp.base_url=${quoteTomlString(normalizedBaseUrl)}`,
+      '-c', 'model_providers.remote_llamacpp.wire_api="responses"',
+      '-c', 'model_providers.remote_llamacpp.env_key="OPENAI_API_KEY"',
+    );
   }
 
+  const terminal = pty.spawn(codexPath, args, {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 36,
+    cwd: repository,
+    env,
+  });
+  const state: SessionState = { id: sessionId, pty: terminal, repository, branch, status: 'running', terminalBuffer: '' };
+  sessions.set(sessionId, state);
+  records.set(sessionId, {
+    id: sessionId,
+    repository,
+    branch,
+    provider,
+    model: provider === 'remote_llamacpp' ? resolvedRemote.model : undefined,
+    baseUrl: provider === 'remote_llamacpp' ? normalizeBaseUrl(resolvedRemote.baseUrl) : undefined,
+    status: 'running',
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  });
+  saveStore();
+  recordEvent(sessionId, 'system', `Started Codex in ${repository}`);
+
+  terminal.onData((data: string) => terminalOutput(sessionId, data));
+  terminal.onExit(({ exitCode }: { exitCode: number }) => {
+    state.status = exitCode === 0 ? 'completed' : 'failed';
+    const record = records.get(sessionId);
+    if (record) { record.status = state.status; record.updated_at = Date.now(); }
+    saveStore();
+    recordEvent(sessionId, 'system', `Codex exited with code ${exitCode}`);
+    sessions.delete(sessionId);
+  });
+  return { sessionId, pid: terminal.pid, repository, branch };
+}
+
+function stopSession(sessionId: string) {
+  const state = sessions.get(sessionId);
+  if (!state) return false;
+  state.pty.kill();
+  sessions.delete(sessionId);
+  const record = records.get(sessionId);
+  if (record) { record.status = 'stopped'; record.updated_at = Date.now(); }
+  saveStore();
+  return true;
+}
+
+ipcMain.handle('session:start', (_event, options: SessionOptions) => startSession(options || {}));
+ipcMain.handle('session:stop', (_event, sessionId: string) => stopSession(sessionId));
+ipcMain.handle('session:list', () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at));
+ipcMain.handle('session:events', (_event, sessionId: string) => events.get(sessionId) || []);
+ipcMain.handle('session:terminal-buffer', (_event, sessionId: string) => sessions.get(sessionId)?.terminalBuffer || '');
+ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId: string; input: string }) => {
+  const state = sessions.get(sessionId);
+  if (!state || !input) return false;
+  state.pty.write(input);
   return true;
 });
-
-ipcMain.handle('git:status', (_event, repoPath: string) => {
-  try {
-    return codexAddon.gitStatus(repoPath);
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
+ipcMain.handle('session:resize', (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+  const state = sessions.get(sessionId);
+  if (!state) return false;
+  state.pty.resize(Math.max(2, cols), Math.max(2, rows));
+  return true;
 });
+ipcMain.handle('session:reconnect', () => false);
 
-ipcMain.handle('git:diff', (_event, repoPath: string, filePath: string) => {
-  try {
-    return codexAddon.gitDiff(repoPath, filePath);
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
+ipcMain.handle('git:status', (_event, repository: string) => gitStatus(repository));
+ipcMain.handle('git:diff', (_event, repository: string, filePath: string) => gitDiff(repository, filePath));
+ipcMain.handle('git:branch', (_event, repository: string) => getBranch(repository));
+ipcMain.handle('git:hunks', (_event, repository: string, filePath: string) => gitHunks(repository, filePath));
+ipcMain.handle('git:apply-hunk', () => 'Error: hunk application is not supported yet; use the Codex terminal or git.');
+ipcMain.handle('git:reject-hunk', () => 'Error: hunk rejection is not supported yet; use the Codex terminal or git.');
+ipcMain.handle('settings:get', () => appSettings);
+ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
+  appSettings = {
+    defaultProvider: nextSettings.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
+    remoteLlamaCpp: {
+      baseUrl: nextSettings.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
+      model: nextSettings.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
+      apiKey: nextSettings.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+    },
+  };
+  saveSettings();
+  return appSettings;
 });
-
-ipcMain.handle('git:branch', (_event, repoPath: string) => {
-  try {
-    return codexAddon.gitBranch(repoPath);
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-});
-
-ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => {
-  // Get pending approvals, optionally filtered by session
-  const pending = approvalQueue.filter(a => a.status === 'pending' && (!sessionId || a.sessionId === sessionId));
-  return pending;
-});
-
-ipcMain.handle('approval:approve', (_event, approvalId: string) => {
-  return processApproval(approvalId, true);
-});
-
-ipcMain.handle('approval:reject', (_event, approvalId: string) => {
-  return processApproval(approvalId, false);
-});
-
-// ─── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  initDatabase();
+  initStore();
+  initSettings();
   createWindow();
-
-  // Recover any sessions that were running when the GUI crashed
-  const recovered = recoverSessions();
-  if (recovered.length > 0) {
-    console.log(`Recovered ${recovered.length} session(s):`, recovered);
-    mainWindow?.webContents.send('codex:sessions-recovered', recovered);
-  }
-
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  db?.close();
-  // Stop all sessions
-  for (const [id] of sessions) {
-    stopCodexSession(id);
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  for (const id of sessions.keys()) stopSession(id);
+  if (process.platform !== 'darwin') app.quit();
 });
