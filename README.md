@@ -65,6 +65,17 @@ The new session drawer can launch Codex against a remote `llama-server` endpoint
 - `Ctrl/Cmd+N` opens the new-session drawer from the native app menu.
 - The app uses a real Linux-style application menu for reload, zoom, developer tools, and fullscreen.
 
+## Packaging
+
+Build a Linux package with:
+
+```bash
+npm run build
+npm run package:linux -- --dir
+```
+
+The package step stays offline-friendly here by reusing the local native builds for `better-sqlite3` and `node-pty`.
+
 ## Repository layout
 
 ```
