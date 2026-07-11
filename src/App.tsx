@@ -371,7 +371,13 @@ export default function App() {
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {activeTab === 'terminal' && <TerminalPane sessionId={selectedSession} compact />}
+              {activeTab === 'terminal' && (
+                <TerminalPane
+                  sessionId={selectedSession}
+                  compact
+                  onCopyTranscript={handleCopyText}
+                />
+              )}
               {activeTab === 'diff' && (
                 <DiffViewer
                   sessionId={selectedSession}

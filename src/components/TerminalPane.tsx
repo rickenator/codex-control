@@ -6,9 +6,10 @@ import 'xterm/css/xterm.css';
 interface Props {
   sessionId: string | null;
   compact?: boolean;
+  onCopyTranscript: (text: string, label: string) => void;
 }
 
-export default function TerminalPane({ sessionId, compact = false }: Props) {
+export default function TerminalPane({ sessionId, compact = false, onCopyTranscript }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,35 +23,70 @@ export default function TerminalPane({ sessionId, compact = false }: Props) {
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(containerRef.current);
-    fit.fit();
-    window.codexApi.resizeTerminal(sessionId, terminal.cols, terminal.rows);
+    const fitTerminal = () => {
+      fit.fit();
+      if (terminal.cols > 0 && terminal.rows > 0) {
+        void window.codexApi.resizeTerminal(sessionId, terminal.cols, terminal.rows);
+      }
+    };
+    fitTerminal();
     terminal.focus();
-    window.codexApi.getTerminalBuffer(sessionId).then(buffer => terminal.write(buffer));
+    void window.codexApi.getTerminalBuffer(sessionId).then(buffer => terminal.write(buffer));
 
     const input = terminal.onData(data => window.codexApi.sendInput(sessionId, data));
     const output = window.codexApi.onTerminalOutput(message => {
       if (message.sessionId === sessionId) terminal.write(message.data);
     });
-    const resize = () => {
-      fit.fit();
-      window.codexApi.resizeTerminal(sessionId, terminal.cols, terminal.rows);
-    };
+    const resizeObserver = new ResizeObserver(() => fitTerminal());
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    const resize = () => fitTerminal();
     window.addEventListener('resize', resize);
     return () => {
       input.dispose();
       output();
+      resizeObserver.disconnect();
       window.removeEventListener('resize', resize);
       terminal.dispose();
     };
   }, [sessionId]);
 
   return (
-    <div ref={containerRef} className={`codex-terminal-pane${compact ? ' compact' : ''}`}>
-      {!sessionId && (
-        <div style={{ color: '#8b949e', fontFamily: 'monospace', fontSize: 12, padding: 8 }}>
-          Start a session to open the real Codex terminal.
+    <div className={`codex-terminal-pane${compact ? ' compact' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {sessionId && (
+        <div
+          className="codex-toolbar"
+          style={{
+            padding: compact ? '6px 12px' : '8px 14px',
+            fontSize: 12,
+            color: '#8b949e',
+            borderBottom: compact ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.10)',
+            background: compact ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.03)',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span style={{ color: '#f0f6fc', fontWeight: 600 }}>Terminal</span>
+            <span>Live command stream for this session</span>
+          </div>
+          <button
+            className="codex-button codex-button-secondary"
+            onClick={async () => {
+              const buffer = await window.codexApi.getTerminalBuffer(sessionId);
+              onCopyTranscript(buffer, 'Terminal transcript');
+            }}
+          >
+            Copy transcript
+          </button>
         </div>
       )}
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
+        {!sessionId && (
+          <div style={{ color: '#8b949e', fontFamily: 'monospace', fontSize: 12, padding: 8 }}>
+            Start a session to open the real Codex terminal.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
