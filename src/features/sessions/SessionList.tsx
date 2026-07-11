@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface Session {
   id: string;
@@ -61,6 +61,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [baseUrl, setBaseUrl] = useState(settings.remoteLlamaCpp.baseUrl);
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     setProvider(settings.defaultProvider);
@@ -68,6 +69,18 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     setModel(settings.remoteLlamaCpp.model);
     setApiKey(settings.remoteLlamaCpp.apiKey);
   }, [settings]);
+
+  const filteredSessions = sessions.filter(session => {
+    const haystack = [
+      session.repository,
+      session.branch,
+      session.status,
+      session.provider,
+      session.model,
+      session.baseUrl,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(search.trim().toLowerCase());
+  });
 
   return (
     <aside style={{
@@ -116,6 +129,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               </span>
             </div>
             <button
+              aria-label="Save default launch profile"
               onClick={() => onSettingsChange({
                 defaultProvider: provider,
                 remoteLlamaCpp: { baseUrl, model, apiKey },
@@ -136,6 +150,28 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <MiniRow label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
             <MiniRow label="Model" value={settings.remoteLlamaCpp.model} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              onClick={() => {
+                setProvider('remote_llamacpp');
+                setBaseUrl('http://192.168.1.240:8081');
+                setModel('Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL');
+                setApiKey('llama.cpp');
+              }}
+              style={{
+                flex: 1,
+                padding: '5px 10px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 999,
+                color: '#c9d1d9',
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              Reset local draft
+            </button>
           </div>
         </div>
 
@@ -249,7 +285,28 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 />
               </>
             )}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={() => onSettingsChange({
+                  defaultProvider: 'remote_llamacpp',
+                  remoteLlamaCpp: { baseUrl, model, apiKey },
+                })}
+                style={{
+                  flex: 1,
+                  padding: '5px 10px',
+                  background: 'rgba(35, 134, 54, 0.15)',
+                  border: '1px solid rgba(35, 134, 54, 0.35)',
+                  borderRadius: 999,
+                  color: '#3fb950',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                Save as default
+              </button>
+            </div>
             <button
+              disabled={provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())}
               onClick={() => {
                 onStartSession({
                   repository: repository.trim() || undefined,
@@ -272,12 +329,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               style={{
                 width: '100%',
                 padding: '6px 8px',
-                background: '#238636',
+                background: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? '#30363d' : '#238636',
                 border: 'none',
                 borderRadius: 4,
                 color: '#fff',
                 fontSize: 12,
-                cursor: 'pointer',
+                cursor: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'not-allowed' : 'pointer',
               }}
             >
               Start Session
@@ -286,13 +343,37 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+      <div style={{ padding: '0 14px 10px' }}>
+        <input
+          type="search"
+          placeholder="Search sessions"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          style={{
+            width: '100%',
+            padding: '7px 10px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 10,
+            color: '#c9d1d9',
+            fontSize: 12,
+            outline: 'none',
+          }}
+        />
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 4px' }}>
+        {search.trim() && filteredSessions.length === 0 && (
+          <div style={{ padding: '16px 14px', color: '#8b949e', fontSize: 12 }}>
+            No sessions match “{search.trim()}”.
+          </div>
+        )}
         {sessions.length === 0 && !showNewSession && (
           <div style={{ padding: '20px 16px', color: '#484f58', fontSize: 13 }}>
             No sessions yet. Click "+ New" to start a session.
           </div>
         )}
-        {sessions.map(s => (
+        {(search.trim() ? filteredSessions : sessions).map(s => (
           <div
             key={s.id}
             onClick={() => onSelect(s.id)}

@@ -34,15 +34,19 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
       return;
     }
 
-    // Load pending approvals from the backend
-    // In production, this would come via IPC from the main process
-    // For now, we'll simulate with a polling mechanism
-    const interval = setInterval(() => {
-      // TODO: Replace with real IPC call
-      // window.codexApi.getPendingApprovals(sessionId).then(setApprovals);
-    }, 2000);
+    let cancelled = false;
+    const refresh = async () => {
+      const pending = await window.codexApi.getPendingApprovals(sessionId);
+      if (!cancelled) setApprovals(pending);
+    };
 
-    return () => clearInterval(interval);
+    refresh();
+    const interval = window.setInterval(refresh, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [sessionId]);
 
   const handleApprove = async (id: string) => {
@@ -68,8 +72,10 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
   if (approvals.length === 0) {
     return (
       <div style={{ flex: 1, overflow: 'auto', background: '#0d1117', padding: 12 }}>
-        <div style={{ color: '#484f58', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
-          No pending approvals. Commands will appear here when they require your review.
+        <div style={{ color: '#484f58', fontSize: 13, textAlign: 'center', marginTop: 40, lineHeight: 1.5 }}>
+          No pending approvals.
+          <br />
+          Commands that need review will appear here as they are queued.
         </div>
       </div>
     );

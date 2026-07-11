@@ -26,9 +26,12 @@ const defaultSettings: AppSettings = {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('terminal');
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const saved = window.localStorage.getItem('codex-control:active-tab');
+    return saved === 'diff' || saved === 'approvals' ? saved : 'terminal';
+  });
   const [sessions, setSessions] = useState<any[]>([]);
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<string | null>(() => window.localStorage.getItem('codex-control:selected-session'));
   const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
@@ -55,6 +58,45 @@ export default function App() {
       unsubscribeApproval();
     };
   }, [selectedSession]);
+
+  useEffect(() => {
+    if (!sessions.length) return;
+    const selectedStillExists = selectedSession && sessions.some(session => session.id === selectedSession);
+    if (!selectedStillExists) {
+      setSelectedSession(sessions[0].id);
+    }
+  }, [sessions, selectedSession]);
+
+  useEffect(() => {
+    window.localStorage.setItem('codex-control:active-tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedSession) {
+      window.localStorage.setItem('codex-control:selected-session', selectedSession);
+    } else {
+      window.localStorage.removeItem('codex-control:selected-session');
+    }
+  }, [selectedSession]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!event.metaKey && !event.ctrlKey) return;
+      if (event.key === '1') {
+        setActiveTab('terminal');
+        event.preventDefault();
+      } else if (event.key === '2') {
+        setActiveTab('diff');
+        event.preventDefault();
+      } else if (event.key === '3') {
+        setActiveTab('approvals');
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
 
   const activeSession = sessions.find(session => session.id === selectedSession);
 
@@ -156,6 +198,11 @@ export default function App() {
           <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Codex Control</div>
           <div style={{ fontSize: 18, fontWeight: 600, color: '#f0f6fc' }}>
             {activeSession?.repository || 'No session selected'}
+          </div>
+          <div style={{ fontSize: 12, color: '#8b949e' }}>
+            {activeSession
+              ? `${activeSession.branch || 'detached'} · ${activeSession.status}`
+              : 'Start or select a session to continue'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -278,6 +325,7 @@ export default function App() {
                 <span style={{ fontSize: 12, color: '#8b949e' }}>Conversation</span>
                 <span style={{ fontSize: 13, color: '#f0f6fc' }}>Prompt, response, tools</span>
               </div>
+              <div style={{ fontSize: 11, color: '#8b949e' }}>Ctrl/Cmd + 1, 2, 3</div>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               <EventTimeline sessionId={selectedSession} compact />
@@ -285,6 +333,23 @@ export default function App() {
           </section>
         </div>
       </div>
+      <footer style={{
+        margin: '0 12px 12px',
+        padding: '8px 14px',
+        borderRadius: 12,
+        background: 'rgba(13, 17, 23, 0.72)',
+        border: '1px solid rgba(255, 255, 255, 0.06)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: 11,
+        color: '#8b949e',
+      }}>
+        <span>{sessions.length} session{sessions.length === 1 ? '' : 's'} tracked</span>
+        <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
+        <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : 'Default Codex profile active'}</span>
+      </footer>
     </div>
   );
 }

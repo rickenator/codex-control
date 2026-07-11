@@ -49,6 +49,17 @@ interface AppSettings {
   };
 }
 
+interface ApprovalRequest {
+  id: string;
+  sessionId: string;
+  command: string;
+  workingDir: string;
+  sandboxPolicy: string;
+  affectedPaths: string[];
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 interface CodexEvent {
   id: string;
   session_id: string;
@@ -71,6 +82,7 @@ let appSettings: AppSettings = {
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
 const events = new Map<string, CodexEvent[]>();
+const approvals = new Map<string, ApprovalRequest>();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -93,6 +105,7 @@ function saveStore() {
   fs.writeFileSync(storePath, JSON.stringify({
     sessions: [...records.values()],
     events: Object.fromEntries(events),
+    approvals: [...approvals.values()],
   }));
 }
 
@@ -110,6 +123,9 @@ function initStore() {
     }
     for (const [sessionId, savedEvents] of Object.entries(saved.events || {})) {
       events.set(sessionId, savedEvents as CodexEvent[]);
+    }
+    for (const approval of saved.approvals || []) {
+      approvals.set(approval.id, approval);
     }
   } catch (error: any) {
     if (error.code !== 'ENOENT') console.error('Could not read saved sessions:', error);
@@ -160,6 +176,33 @@ function terminalOutput(sessionId: string, data: string) {
   const state = sessions.get(sessionId);
   if (state) state.terminalBuffer = (state.terminalBuffer + data).slice(-1_000_000);
   mainWindow?.webContents.send('codex:terminal-output', { sessionId, data });
+}
+
+function getPendingApprovals(sessionId?: string) {
+  return [...approvals.values()]
+    .filter(approval => approval.status === 'pending')
+    .filter(approval => !sessionId || approval.sessionId === sessionId)
+    .sort((left, right) => right.timestamp - left.timestamp);
+}
+
+function approveCommand(approvalId: string) {
+  const approval = approvals.get(approvalId);
+  if (!approval) return false;
+  approval.status = 'approved';
+  approvals.set(approvalId, approval);
+  saveStore();
+  mainWindow?.webContents.send('codex:approval-processed', { id: approvalId, approved: true });
+  return true;
+}
+
+function rejectCommand(approvalId: string) {
+  const approval = approvals.get(approvalId);
+  if (!approval) return false;
+  approval.status = 'rejected';
+  approvals.set(approvalId, approval);
+  saveStore();
+  mainWindow?.webContents.send('codex:approval-processed', { id: approvalId, approved: false });
+  return true;
 }
 
 function getBranch(repository: string) {
@@ -327,6 +370,9 @@ ipcMain.handle('git:branch', (_event, repository: string) => getBranch(repositor
 ipcMain.handle('git:hunks', (_event, repository: string, filePath: string) => gitHunks(repository, filePath));
 ipcMain.handle('git:apply-hunk', () => 'Error: hunk application is not supported yet; use the Codex terminal or git.');
 ipcMain.handle('git:reject-hunk', () => 'Error: hunk rejection is not supported yet; use the Codex terminal or git.');
+ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => getPendingApprovals(sessionId));
+ipcMain.handle('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
+ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
 ipcMain.handle('settings:get', () => appSettings);
 ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
