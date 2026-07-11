@@ -770,7 +770,7 @@ std::string git_apply_hunk(const std::string& repo_path, const std::string& file
     if (!found) return "Error: hunk not found";
     
     // Write to temp file and apply
-    std::string tmp_path = repo_path + "/.codex-control-hunk-" + std::to_string(hunk_id) + ".patch";
+    std::string tmp_path = repo_path + "/.consiglio-hunk-" + std::to_string(hunk_id) + ".patch";
     std::ofstream out(tmp_path);
     if (!out.is_open()) return "Error: cannot write patch file";
     out << selected_hunk;
@@ -853,7 +853,7 @@ std::string git_reject_hunk(const std::string& repo_path, const std::string& fil
     if (inverted_hunk.empty()) return "Error: hunk not found";
     
     // Write inverted patch and apply it
-    std::string tmp_path = repo_path + "/.codex-control-reject-" + std::to_string(hunk_id) + ".patch";
+    std::string tmp_path = repo_path + "/.consiglio-reject-" + std::to_string(hunk_id) + ".patch";
     std::ofstream out(tmp_path);
     if (!out.is_open()) return "Error: cannot write patch file";
     out << inverted_hunk;

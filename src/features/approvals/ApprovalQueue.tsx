@@ -109,12 +109,39 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
           }}
         >
           <div className="codex-toolbar" style={{ marginBottom: 8, padding: 0, borderBottom: 0, background: 'transparent' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#f0f6fc' }}>
-              Approval Required
-            </span>
-            <span style={{ fontSize: 10, color: '#484f58' }}>
-              {new Date(approval.timestamp).toLocaleTimeString()}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#f0f6fc' }}>
+                Approval Required
+              </span>
+              <span style={{ fontSize: 10, color: '#484f58' }}>
+                {new Date(approval.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+            <div className="codex-chip" style={{ padding: '4px 8px' }}>
+              <span className="codex-chip-label">Sandbox</span>
+              <span className="codex-chip-value">{approval.sandboxPolicy}</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onCopy(approval.command, 'Command')}
+            >
+              Copy command
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onCopy(approval.workingDir, 'Working directory')}
+            >
+              Copy path
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onOpen(approval.workingDir, 'Working directory')}
+            >
+              Open dir
+            </button>
           </div>
 
           {/* Command details */}
@@ -176,7 +203,7 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
           )}
 
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button
               className="codex-button codex-button-primary"
               onClick={() => handleApprove(approval.id)}
@@ -188,24 +215,6 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
               onClick={() => handleReject(approval.id)}
             >
               ✗ Reject
-            </button>
-            <button
-              className="codex-button codex-button-secondary"
-              onClick={() => onCopy(approval.command, 'Command')}
-            >
-              Copy command
-            </button>
-            <button
-              className="codex-button codex-button-secondary"
-              onClick={() => onCopy(approval.workingDir, 'Working directory')}
-            >
-              Copy path
-            </button>
-            <button
-              className="codex-button codex-button-secondary"
-              onClick={() => onOpen(approval.workingDir, 'Working directory')}
-            >
-              Open dir
             </button>
           </div>
         </div>

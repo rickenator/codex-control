@@ -1,5 +1,5 @@
 {
-  "name": "codex-control",
+  "name": "consiglio",
   "version": "0.1.0",
   "description": "A Linux desktop control plane for Codex CLI.",
   "author": "Rick",
@@ -43,10 +43,10 @@
     "wait-on": "^8"
   },
   "build": {
-    "appId": "com.rickenator.codex-control",
-    "productName": "Codex Control",
+    "appId": "com.rickenator.consiglio",
+    "productName": "Consiglio",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "executableName": "codex-control",
+    "executableName": "consiglio",
     "electronDist": "node_modules/electron/dist",
     "npmRebuild": false,
     "linux": {

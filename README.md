@@ -1,4 +1,4 @@
-# codex-control
+# Consiglio
 
 A Linux desktop control plane for Codex CLI — observability and session management.
 
@@ -79,7 +79,7 @@ The package step stays offline-friendly here by reusing the local native builds 
 ## Repository layout
 
 ```
-codex-control/
+consiglio/
   native/               # C++17 native addon
     src/addon.cpp       # N-API bindings (process, git, event logging)
     src/node_pty_bridge.h/cpp  # PTY lifecycle management

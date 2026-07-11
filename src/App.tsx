@@ -32,11 +32,11 @@ const defaultSettings: AppSettings = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const saved = window.localStorage.getItem('codex-control:active-tab');
+    const saved = window.localStorage.getItem('consiglio:active-tab') ?? window.localStorage.getItem('consiglier:active-tab') ?? window.localStorage.getItem('codex-control:active-tab');
     return saved === 'diff' || saved === 'approvals' ? saved : 'terminal';
   });
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
-  const [selectedSession, setSelectedSession] = useState<string | null>(() => window.localStorage.getItem('codex-control:selected-session'));
+  const [selectedSession, setSelectedSession] = useState<string | null>(() => window.localStorage.getItem('consiglio:selected-session') ?? window.localStorage.getItem('consiglier:selected-session') ?? window.localStorage.getItem('codex-control:selected-session'));
   const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
@@ -87,14 +87,14 @@ export default function App() {
   }, [sessions, selectedSession]);
 
   useEffect(() => {
-    window.localStorage.setItem('codex-control:active-tab', activeTab);
+    window.localStorage.setItem('consiglio:active-tab', activeTab);
   }, [activeTab]);
 
   useEffect(() => {
     if (selectedSession) {
-      window.localStorage.setItem('codex-control:selected-session', selectedSession);
+      window.localStorage.setItem('consiglio:selected-session', selectedSession);
     } else {
-      window.localStorage.removeItem('codex-control:selected-session');
+      window.localStorage.removeItem('consiglio:selected-session');
     }
   }, [selectedSession]);
 
@@ -277,7 +277,7 @@ export default function App() {
 
       <header className="codex-page-header">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Codex Control</div>
+          <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Consiglio</div>
           <div style={{ fontSize: 18, fontWeight: 600, color: '#f0f6fc' }}>
             {activeSession?.repository || 'No session selected'}
           </div>

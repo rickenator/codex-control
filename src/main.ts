@@ -92,7 +92,7 @@ function createWindow() {
     ...windowState.bounds,
     minWidth: 960,
     minHeight: 640,
-    title: 'Codex Control',
+    title: 'Consiglio',
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -141,22 +141,43 @@ function writeJsonAtomic(filePath: string, data: unknown) {
   fs.renameSync(temporaryPath, filePath);
 }
 
+function readJsonWithFallback<T>(paths: string[]): T | null {
+  for (const candidate of paths) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, 'utf8')) as T;
+    } catch (error: unknown) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') continue;
+      console.error(`Could not read ${candidate}:`, error);
+      return null;
+    }
+  }
+  return null;
+}
+
 function initStore() {
-  storePath = path.join(app.getPath('userData'), 'codex-control-sessions.json');
+  storePath = path.join(app.getPath('userData'), 'consiglio-sessions.json');
+  const saved = readJsonWithFallback<{
+    sessions?: SessionRecord[];
+    events?: Record<string, CodexEvent[]>;
+    approvals?: ApprovalRequest[];
+  }>([
+    storePath,
+    path.join(app.getPath('userData'), 'consiglier-sessions.json'),
+    path.join(app.getPath('userData'), 'codex-control-sessions.json'),
+  ]);
   try {
-    const saved = JSON.parse(fs.readFileSync(storePath, 'utf8'));
-    for (const record of saved.sessions || []) {
+    for (const record of saved?.sessions || []) {
       records.set(record.id, record);
     }
-    for (const [sessionId, savedEvents] of Object.entries(saved.events || {})) {
+    for (const [sessionId, savedEvents] of Object.entries(saved?.events || {})) {
       events.set(sessionId, savedEvents as CodexEvent[]);
     }
-    for (const approval of saved.approvals || []) {
+    for (const approval of saved?.approvals || []) {
       approvals.set(approval.id, approval);
     }
   } catch (error: unknown) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code !== 'ENOENT') console.error('Could not read saved sessions:', error);
+    console.error('Could not load saved sessions:', error);
   }
   for (const record of records.values()) {
     if (record.status === 'running') record.status = 'stopped';
@@ -165,32 +186,41 @@ function initStore() {
 }
 
 function initSettings() {
-  settingsPath = path.join(app.getPath('userData'), 'codex-control-settings.json');
+  settingsPath = path.join(app.getPath('userData'), 'consiglio-settings.json');
+  const saved = readJsonWithFallback<Partial<AppSettings>>([
+    settingsPath,
+    path.join(app.getPath('userData'), 'consiglier-settings.json'),
+    path.join(app.getPath('userData'), 'codex-control-settings.json'),
+  ]);
   try {
-    const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as Partial<AppSettings>;
-    appSettings = {
-      defaultProvider: saved.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
-      remoteLlamaCpp: {
-        baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
-        model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
-        apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
-      },
-    };
+    if (saved) {
+      appSettings = {
+        defaultProvider: saved.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
+        remoteLlamaCpp: {
+          baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
+          model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
+          apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+        },
+      };
+    }
   } catch (error: unknown) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code !== 'ENOENT') console.error('Could not read settings:', error);
+    console.error('Could not load settings:', error);
   }
   saveSettings();
 }
 
 function loadWindowState() {
-  windowStatePath = path.join(app.getPath('userData'), 'codex-control-window-state.json');
+  windowStatePath = path.join(app.getPath('userData'), 'consiglio-window-state.json');
   const fallback = { bounds: { width: 1440, height: 920 }, maximized: false };
-  try {
-    const saved = JSON.parse(fs.readFileSync(windowStatePath, 'utf8')) as {
-      bounds?: { x?: number; y?: number; width?: number; height?: number };
-      maximized?: boolean;
-    };
+  const saved = readJsonWithFallback<{
+    bounds?: { x?: number; y?: number; width?: number; height?: number };
+    maximized?: boolean;
+  }>([
+    windowStatePath,
+    path.join(app.getPath('userData'), 'consiglier-window-state.json'),
+    path.join(app.getPath('userData'), 'codex-control-window-state.json'),
+  ]);
+  if (saved) {
     return {
       bounds: {
         x: typeof saved.bounds?.x === 'number' ? saved.bounds.x : undefined,
@@ -200,11 +230,8 @@ function loadWindowState() {
       },
       maximized: Boolean(saved.maximized),
     };
-  } catch (error: unknown) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code !== 'ENOENT') console.error('Could not read window state:', error);
-    return fallback;
   }
+  return fallback;
 }
 
 function saveWindowState(window: BrowserWindow | null) {
