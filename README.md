@@ -26,8 +26,8 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 | M1 | Codex process/app-server connection and event capture | ✅ Done |
 | M2 | Prompt/response timeline and reconnect | ✅ Done |
 | M3 | Approval UI with exact command details | ✅ Done |
-| M4 | Git status and unified diff | ⏳ Pending |
-| M5 | Session browser and persistence | ⏳ Pending |
+| M4 | Git status and unified diff | ✅ Done |
+| M5 | Session browser and persistence | ✅ Done |
 | M6 | Local llama.cpp provider validation | ⏳ Pending |
 | M7 | Packaging for Ubuntu (AppImage + .deb) | ✅ Done |
 | M8 | Dogfood on a non-ATT-1 project | ⏳ Pending |
