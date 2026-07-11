@@ -64,8 +64,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
   const [search, setSearch] = useState('');
+  const [isDroppingWorkspace, setIsDroppingWorkspace] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
   const recentWorkspaces = useMemo(() => {
     const latestByRepo = new Map<string, number>();
     for (const session of sessions) {
@@ -146,6 +148,18 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     return haystack.includes(search.trim().toLowerCase());
   });
 
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDroppingWorkspace(false);
+    const droppedPath = event.dataTransfer.files[0]?.path;
+    if (droppedPath) {
+      setRepository(droppedPath);
+      setShowNewSession(true);
+    }
+  };
+
   return (
     <aside className="codex-sidebar">
       <div style={{ padding: '14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -212,7 +226,34 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         </div>
 
         {showNewSession && (
-          <div className="codex-form-card" id="new-session-form">
+          <div
+            className={`codex-form-card codex-drop-zone${isDroppingWorkspace ? ' codex-drop-zone-active' : ''}`}
+            id="new-session-form"
+            onDragEnter={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current += 1;
+              setIsDroppingWorkspace(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = 'copy';
+              setIsDroppingWorkspace(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+              if (dragDepthRef.current === 0) {
+                setIsDroppingWorkspace(false);
+              }
+            }}
+            onDrop={handleDrop}
+          >
+            <div className="codex-help" style={{ marginBottom: 8 }}>
+              {isDroppingWorkspace ? 'Drop the workspace folder to start a session.' : 'Drop a workspace folder here or use the buttons below.'}
+            </div>
             <input
               ref={repositoryRef}
               type="text"

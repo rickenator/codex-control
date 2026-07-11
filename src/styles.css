@@ -299,6 +299,16 @@ textarea:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.codex-drop-zone {
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.codex-drop-zone-active {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: rgba(88, 166, 255, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.18);
+}
+
 .codex-form-stack {
   display: flex;
   flex-direction: column;
