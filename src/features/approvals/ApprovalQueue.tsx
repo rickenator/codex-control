@@ -27,6 +27,13 @@ const sandboxColors: Record<string, string> = {
   'auto-approve': '#58a6ff',
 };
 
+function formatApprovalTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
+
 export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, onOpen, onError }: Props) {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
@@ -103,33 +110,37 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
         <div
           key={approval.id}
           style={{
-            padding: 12,
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            margin: 12,
+            padding: 14,
+            borderRadius: 14,
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.08)',
             borderLeft: `3px solid ${sandboxColors[approval.sandboxPolicy] || '#8b949e'}`,
+            boxShadow: '0 10px 24px rgba(0,0,0,0.16)',
           }}
         >
-          <div className="codex-toolbar" style={{ marginBottom: 8, padding: 0, borderBottom: 0, background: 'transparent' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div className="codex-toolbar" style={{ marginBottom: 12, padding: 0, borderBottom: 0, background: 'transparent', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#f0f6fc' }}>
                 Approval Required
               </span>
               <span style={{ fontSize: 10, color: '#484f58' }}>
-                {new Date(approval.timestamp).toLocaleTimeString()}
+                {formatApprovalTime(approval.timestamp)}
               </span>
             </div>
-            <div className="codex-chip" style={{ padding: '4px 8px' }}>
-              <span className="codex-chip-label">Sandbox</span>
-              <span className="codex-chip-value">{approval.sandboxPolicy}</span>
+            <div className="codex-chip-list">
+              <div className="codex-chip" style={{ padding: '4px 8px', borderColor: sandboxColors[approval.sandboxPolicy] || '#8b949e' }}>
+                <span className="codex-chip-label">Sandbox</span>
+                <span className="codex-chip-value">{approval.sandboxPolicy}</span>
+              </div>
+              <div className="codex-chip" title={approval.workingDir} style={{ padding: '4px 8px' }}>
+                <span className="codex-chip-label">Dir</span>
+                <span className="codex-chip-value">{approval.workingDir}</span>
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            <button
-              className="codex-button codex-button-secondary"
-              onClick={() => onCopy(approval.command, 'Command')}
-            >
-              Copy command
-            </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <button
               className="codex-button codex-button-secondary"
               onClick={() => onCopy(approval.workingDir, 'Working directory')}
@@ -144,48 +155,37 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
             </button>
           </div>
 
-          {/* Command details */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>COMMAND</div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontSize: 11, color: '#8b949e' }}>COMMAND</div>
+              <button
+                className="codex-button codex-button-secondary"
+                style={{ padding: '5px 10px', fontSize: 11 }}
+                onClick={() => onCopy(approval.command, 'Command')}
+              >
+                Copy command
+              </button>
+            </div>
             <pre style={{
-              background: 'rgba(255,255,255,0.03)',
-              padding: 8,
-              borderRadius: 8,
+              background: 'rgba(255,255,255,0.04)',
+              padding: 10,
+              borderRadius: 10,
               fontSize: 12,
               fontFamily: 'monospace',
               color: '#c9d1d9',
               overflowX: 'auto',
               whiteSpace: 'pre-wrap',
+              border: '1px solid rgba(255,255,255,0.06)',
+              margin: 0,
             }}>
               {approval.command}
             </pre>
           </div>
 
-          {/* Working directory */}
-          <div style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>Working dir: </span>
-            <code style={{ fontSize: 11, color: '#58a6ff', fontFamily: 'monospace' }}>
-              {approval.workingDir}
-            </code>
-          </div>
-
-          {/* Sandbox policy */}
-          <div style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>Sandbox: </span>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: sandboxColors[approval.sandboxPolicy] || '#8b949e',
-            }}>
-              {approval.sandboxPolicy}
-            </span>
-          </div>
-
-          {/* Affected paths */}
           {approval.affectedPaths.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: '#8b949e' }}>Affected paths: </span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 6 }}>AFFECTED PATHS</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {approval.affectedPaths.map((path, index) => (
                   <code key={index} style={{
                     fontSize: 10,
@@ -202,8 +202,7 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
             </div>
           )}
 
-          {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               className="codex-button codex-button-primary"
               onClick={() => handleApprove(approval.id)}
