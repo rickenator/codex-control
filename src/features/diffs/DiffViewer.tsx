@@ -21,6 +21,7 @@ interface Props {
   repository?: string;
   onCopyPath: (path: string, label: string) => void;
   onOpenPath: (path: string, label: string) => void;
+  onRequestNewSession: () => Promise<void>;
   onError?: (message: string) => void;
 }
 
@@ -42,7 +43,7 @@ const statusColors: Record<string, string> = {
   'U': '#f85149',
 };
 
-export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPath, onError }: Props) {
+export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPath, onRequestNewSession, onError }: Props) {
   const [statusEntries, setStatusEntries] = useState<GitStatusEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [hunks, setHunks] = useState<GitHunk[]>([]);
@@ -184,6 +185,11 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
       <div className="codex-scroll-pane" style={{ padding: 12 }}>
         <div className="codex-empty-state" style={{ paddingTop: 0 }}>
           No repository selected. Diff view will appear when a session with a repository is active.
+          <div style={{ marginTop: 10 }}>
+            <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+              Open new session drawer
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -198,6 +204,11 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
         </div>
         <div className="codex-empty-state">
           Working tree is clean. No changes detected.
+          <div style={{ marginTop: 10 }}>
+            <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+              Open new session drawer
+            </button>
+          </div>
         </div>
       </div>
     );

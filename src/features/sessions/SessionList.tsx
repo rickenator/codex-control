@@ -29,6 +29,7 @@ interface Props {
   onCopyPath: (path: string, label: string) => void;
   onOpenPath: (path: string, label: string) => void;
   onTestRemote: (config: { baseUrl: string; model: string; apiKey: string }) => Promise<boolean>;
+  onRequestNewSession: () => Promise<void>;
   settings: {
     defaultProvider: 'default' | 'remote_llamacpp';
     remoteLlamaCpp: {
@@ -57,7 +58,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -428,6 +429,14 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         {sessions.length === 0 && !showNewSession && (
           <div className="codex-empty-state" style={{ paddingTop: 20, paddingBottom: 20 }}>
             No sessions yet. Click "+ New" to start a session.
+            <div style={{ marginTop: 10 }}>
+              <button
+                className="codex-button codex-button-primary"
+                onClick={() => void onRequestNewSession()}
+              >
+                Open new session drawer
+              </button>
+            </div>
           </div>
         )}
         {(search.trim() ? filteredSessions : sessions).map(s => {

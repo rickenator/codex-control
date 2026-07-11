@@ -595,6 +595,10 @@ ipcMain.handle('ui:copy-text', (_event, text: string) => {
     return false;
   }
 });
+ipcMain.handle('ui:new-session-request', () => {
+  mainWindow?.webContents.send('ui:new-session');
+  return true;
+});
 ipcMain.handle('ui:test-remote-llamacpp', (_event, config: { baseUrl: string; apiKey: string; model?: string }) => {
   return testRemoteLlamaCpp(config.baseUrl, config.apiKey, config.model);
 });

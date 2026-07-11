@@ -7,9 +7,10 @@ interface Props {
   sessionId: string | null;
   compact?: boolean;
   onCopyTranscript: (text: string, label: string) => void;
+  onRequestNewSession: () => Promise<void>;
 }
 
-export default function TerminalPane({ sessionId, compact = false, onCopyTranscript }: Props) {
+export default function TerminalPane({ sessionId, compact = false, onCopyTranscript, onRequestNewSession }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,8 +83,13 @@ export default function TerminalPane({ sessionId, compact = false, onCopyTranscr
       )}
       <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
         {!sessionId && (
-          <div style={{ color: '#8b949e', fontFamily: 'monospace', fontSize: 12, padding: 8 }}>
+          <div className="codex-empty-state" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100%' }}>
             Start a session to open the real Codex terminal.
+            <div style={{ marginTop: 10 }}>
+              <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+                Open new session drawer
+              </button>
+            </div>
           </div>
         )}
       </div>

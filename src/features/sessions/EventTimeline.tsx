@@ -12,6 +12,7 @@ interface Props {
   sessionId: string | null;
   compact?: boolean;
   onCopySessionId: (sessionId: string) => void;
+  onRequestNewSession: () => Promise<void>;
   onError?: (message: string) => void;
 }
 
@@ -35,7 +36,7 @@ const eventIcons: Record<string, string> = {
   output: '📝',
 };
 
-export default function EventTimeline({ sessionId, compact = false, onCopySessionId, onError }: Props) {
+export default function EventTimeline({ sessionId, compact = false, onCopySessionId, onRequestNewSession, onError }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -114,7 +115,12 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
     return (
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div className="codex-empty-state" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          No session selected. Start a session to see the timeline here.
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <span>No session selected. Start a session to see the timeline here.</span>
+            <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+              Open new session drawer
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -158,6 +164,11 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
         {events.length === 0 && (
           <div className="codex-empty-state">
             No events yet. Send a message to start the conversation.
+            <div style={{ marginTop: 10 }}>
+              <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+                Open new session drawer
+              </button>
+            </div>
           </div>
         )}
 

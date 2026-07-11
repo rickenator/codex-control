@@ -17,6 +17,7 @@ interface Props {
   onReject: (id: string) => void;
   onCopy: (text: string, label: string) => void;
   onOpen: (path: string, label: string) => void;
+  onRequestNewSession: () => Promise<void>;
   onError?: (message: string) => void;
 }
 
@@ -34,7 +35,7 @@ function formatApprovalTime(timestamp: number) {
   });
 }
 
-export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, onOpen, onError }: Props) {
+export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, onOpen, onRequestNewSession, onError }: Props) {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
   useEffect(() => {
@@ -87,6 +88,11 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
       <div className="codex-scroll-pane" style={{ padding: 12 }}>
         <div className="codex-empty-state" style={{ paddingTop: 0 }}>
           No session selected. Approval queue will appear when commands require approval.
+          <div style={{ marginTop: 10 }}>
+            <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+              Open new session drawer
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -99,6 +105,11 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
           No pending approvals.
           <br />
           Commands that need review will appear here as they are queued.
+          <div style={{ marginTop: 10 }}>
+            <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
+              Open new session drawer
+            </button>
+          </div>
         </div>
       </div>
     );

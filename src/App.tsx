@@ -252,6 +252,14 @@ export default function App() {
     }
   };
 
+  const handleRequestNewSession = async () => {
+    try {
+      await window.codexApi.requestNewSession();
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not open new session drawer: ${(e as Error).message}` });
+    }
+  };
+
   return (
     <div className="codex-app-shell">
       {notice && (
@@ -306,6 +314,7 @@ export default function App() {
           onCopyPath={handleCopyText}
           onOpenPath={handleOpenPath}
           onTestRemote={handleTestRemoteLlamaCpp}
+          onRequestNewSession={handleRequestNewSession}
           settings={settings}
           onSettingsChange={handleSettingsChange}
         />
@@ -376,6 +385,7 @@ export default function App() {
                   sessionId={selectedSession}
                   compact
                   onCopyTranscript={handleCopyText}
+                  onRequestNewSession={handleRequestNewSession}
                 />
               )}
               {activeTab === 'diff' && (
@@ -384,6 +394,7 @@ export default function App() {
                   repository={activeSession?.repository}
                   onCopyPath={handleCopyText}
                   onOpenPath={handleOpenPath}
+                  onRequestNewSession={handleRequestNewSession}
                   onError={(message) => setNotice({ kind: 'error', message })}
                 />
               )}
@@ -394,6 +405,7 @@ export default function App() {
                   onReject={handleReject}
                   onCopy={handleCopyText}
                   onOpen={handleOpenPath}
+                  onRequestNewSession={handleRequestNewSession}
                   onError={(message) => setNotice({ kind: 'error', message })}
                 />
               )}
