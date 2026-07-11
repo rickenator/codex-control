@@ -254,6 +254,36 @@ function gitHunks(repository: string, filePath: string) {
   return hunks;
 }
 
+function gitApplyHunk(repository: string, filePath: string, hunkId: number, reverse = false) {
+  const hunks = gitHunks(repository, filePath);
+  const hunk = hunks.find(entry => entry.id === hunkId);
+  if (!hunk) {
+    return `Error: hunk ${hunkId} not found for ${filePath}`;
+  }
+
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const patch = [
+    `diff --git a/${normalizedPath} b/${normalizedPath}`,
+    `--- a/${normalizedPath}`,
+    `+++ b/${normalizedPath}`,
+    hunk.header,
+    hunk.content.replace(/\n$/, ''),
+    '',
+  ].join('\n');
+
+  try {
+    execFileSync('git', ['-C', repository, 'apply', '--recount', '--whitespace=nowarn', reverse ? '-R' : '-'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      input: patch,
+    });
+    return 'OK';
+  } catch (error: any) {
+    const stderr = error?.stderr?.toString?.().trim?.();
+    return stderr || error.message || 'Failed to apply hunk';
+  }
+}
+
 function startSession(options: SessionOptions) {
   const repository = path.resolve(options.repository || process.cwd());
   if (!fs.statSync(repository).isDirectory()) {
@@ -368,8 +398,8 @@ ipcMain.handle('git:status', (_event, repository: string) => gitStatus(repositor
 ipcMain.handle('git:diff', (_event, repository: string, filePath: string) => gitDiff(repository, filePath));
 ipcMain.handle('git:branch', (_event, repository: string) => getBranch(repository));
 ipcMain.handle('git:hunks', (_event, repository: string, filePath: string) => gitHunks(repository, filePath));
-ipcMain.handle('git:apply-hunk', () => 'Error: hunk application is not supported yet; use the Codex terminal or git.');
-ipcMain.handle('git:reject-hunk', () => 'Error: hunk rejection is not supported yet; use the Codex terminal or git.');
+ipcMain.handle('git:apply-hunk', (_event, repository: string, filePath: string, hunkId: number) => gitApplyHunk(repository, filePath, hunkId, false));
+ipcMain.handle('git:reject-hunk', (_event, repository: string, filePath: string, hunkId: number) => gitApplyHunk(repository, filePath, hunkId, true));
 ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => getPendingApprovals(sessionId));
 ipcMain.handle('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
 ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
