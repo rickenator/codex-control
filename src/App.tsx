@@ -418,10 +418,25 @@ export default function App() {
           </section>
         </div>
       </div>
-      <footer className="codex-footer">
-        <span>{sessions.length} session{sessions.length === 1 ? '' : 's'} tracked</span>
-        <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
-        <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : 'Default Codex profile active'}</span>
+      <footer className="codex-footer" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+          <span style={{ color: '#f0f6fc', fontWeight: 600 }}>
+            {activeSession?.repository ? sessionLabel(activeSession.repository) : 'No session selected'}
+          </span>
+          <span>
+            {activeSession
+              ? `${activeSession.branch || 'detached'} · ${activeSession.status}`
+              : 'Pick a session or start a workspace to continue'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right', marginLeft: 'auto' }}>
+          <span>{sessions.length} session{sessions.length === 1 ? '' : 's'} tracked</span>
+          <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
+          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : 'Default Codex profile active'}</span>
+          <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search · 1/2/3 tabs</span>
+        </div>
       </footer>
     </div>
   );
@@ -434,4 +449,11 @@ function Pill({ label, value }: { label: string; value: string }) {
       <span className="codex-chip-value">{value}</span>
     </div>
   );
+}
+
+function sessionLabel(repository?: string) {
+  const trimmed = repository?.trim() || '';
+  if (!trimmed) return 'Untitled workspace';
+  const segments = trimmed.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] || trimmed;
 }
