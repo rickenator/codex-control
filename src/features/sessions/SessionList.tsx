@@ -90,44 +90,22 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   });
 
   return (
-    <aside style={{
-      width: 320,
-      display: 'flex',
-      flexDirection: 'column',
-      borderRadius: 14,
-      background: 'rgba(13, 17, 23, 0.82)',
-      border: '1px solid rgba(255, 255, 255, 0.08)',
-      overflow: 'hidden',
-    }}>
+    <aside className="codex-sidebar">
       <div style={{ padding: '14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#f0f6fc' }}>Sessions</h3>
             <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>Active workspaces and launch profiles</div>
           </div>
-            <button
-              onClick={() => setShowNewSession(!showNewSession)}
-              style={{
-              padding: '6px 10px',
-              background: 'rgba(88, 166, 255, 0.12)',
-              border: '1px solid rgba(88, 166, 255, 0.25)',
-              borderRadius: 999,
-              color: '#58a6ff',
-              fontSize: 12,
-              cursor: 'pointer',
-              }}
-            >
+          <button
+            className="codex-button codex-button-info"
+            onClick={() => setShowNewSession(!showNewSession)}
+          >
             + New
           </button>
         </div>
 
-        <div style={{
-          padding: 12,
-          borderRadius: 12,
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid rgba(255, 255, 255, 0.06)',
-          marginBottom: 12,
-        }}>
+        <div className="codex-form-card" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600 }}>Default profile</span>
@@ -137,19 +115,11 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             </div>
             <button
               aria-label="Save default launch profile"
+              className="codex-button codex-button-primary"
               onClick={() => onSettingsChange({
                 defaultProvider: provider,
                 remoteLlamaCpp: { baseUrl, model, apiKey },
               })}
-              style={{
-                padding: '5px 10px',
-                background: 'rgba(35, 134, 54, 0.15)',
-                border: '1px solid rgba(35, 134, 54, 0.35)',
-                borderRadius: 999,
-                color: '#3fb950',
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
             >
               Save profile
             </button>
@@ -160,21 +130,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button
+              className="codex-button codex-button-secondary"
               onClick={() => {
                 setProvider('remote_llamacpp');
                 setBaseUrl('http://192.168.1.240:8081');
                 setModel('Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL');
                 setApiKey('llama.cpp');
-              }}
-              style={{
-                flex: 1,
-                padding: '5px 10px',
-                background: 'rgba(255, 255, 255, 0.04)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: 999,
-                color: '#c9d1d9',
-                fontSize: 11,
-                cursor: 'pointer',
               }}
             >
               Reset local draft
@@ -183,56 +144,29 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         </div>
 
         {showNewSession && (
-          <div style={{ padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+          <div className="codex-form-card">
             <input
               type="text"
               placeholder="Repository path"
               value={repository}
               onChange={(event) => setRepository(event.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px 8px',
-                marginBottom: 4,
-                background: '#161b22',
-                border: '1px solid #30363d',
-                borderRadius: 4,
-                color: '#c9d1d9',
-                fontSize: 12,
-                outline: 'none',
-              }}
+              className="codex-input"
+              style={{ marginBottom: 4 }}
             />
             <input
               type="text"
               placeholder="Branch (optional)"
               value={branch}
               onChange={(event) => setBranch(event.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px 8px',
-                marginBottom: 8,
-                background: '#161b22',
-                border: '1px solid #30363d',
-                borderRadius: 4,
-                color: '#c9d1d9',
-                fontSize: 12,
-                outline: 'none',
-              }}
+              className="codex-input"
+              style={{ marginBottom: 8 }}
             />
             <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#8b949e' }}>Provider</label>
             <select
               value={provider}
               onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp')}
-              style={{
-                width: '100%',
-                padding: '6px 8px',
-                marginBottom: 8,
-                background: '#161b22',
-                border: '1px solid #30363d',
-                borderRadius: 4,
-                color: '#c9d1d9',
-                fontSize: 12,
-                outline: 'none',
-              }}
+              className="codex-select"
+              style={{ marginBottom: 8 }}
               >
                 <option value="remote_llamacpp">Remote llama.cpp</option>
                 <option value="default">Default Codex</option>
@@ -244,75 +178,40 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                   placeholder="llama.cpp base URL"
                   value={baseUrl}
                   onChange={(event) => setBaseUrl(event.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    marginBottom: 4,
-                    background: '#161b22',
-                    border: '1px solid #30363d',
-                    borderRadius: 4,
-                    color: '#c9d1d9',
-                    fontSize: 12,
-                    outline: 'none',
-                  }}
+                  className="codex-input"
+                  style={{ marginBottom: 4 }}
                 />
                 <input
                   type="text"
                   placeholder="Model name"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    marginBottom: 4,
-                    background: '#161b22',
-                    border: '1px solid #30363d',
-                    borderRadius: 4,
-                    color: '#c9d1d9',
-                    fontSize: 12,
-                    outline: 'none',
-                  }}
+                  className="codex-input"
+                  style={{ marginBottom: 4 }}
                 />
                 <input
                   type="password"
                   placeholder="API key (optional)"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    marginBottom: 8,
-                    background: '#161b22',
-                    border: '1px solid #30363d',
-                    borderRadius: 4,
-                    color: '#c9d1d9',
-                    fontSize: 12,
-                    outline: 'none',
-                  }}
+                  className="codex-input"
+                  style={{ marginBottom: 8 }}
                 />
               </>
             )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <button
+                className="codex-button codex-button-primary"
                 onClick={() => onSettingsChange({
                   defaultProvider: 'remote_llamacpp',
                   remoteLlamaCpp: { baseUrl, model, apiKey },
                 })}
-                style={{
-                  flex: 1,
-                  padding: '5px 10px',
-                  background: 'rgba(35, 134, 54, 0.15)',
-                  border: '1px solid rgba(35, 134, 54, 0.35)',
-                  borderRadius: 999,
-                  color: '#3fb950',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                }}
               >
                 Save as default
               </button>
             </div>
             <button
+              className="codex-button codex-button-secondary"
               disabled={provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())}
               onClick={() => {
                 onStartSession({
@@ -335,12 +234,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               }}
               style={{
                 width: '100%',
-                padding: '6px 8px',
-                background: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? '#30363d' : '#238636',
-                border: 'none',
-                borderRadius: 4,
+                background: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
                 color: '#fff',
-                fontSize: 12,
                 cursor: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'not-allowed' : 'pointer',
               }}
             >
@@ -356,27 +251,18 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           placeholder="Search sessions"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          style={{
-            width: '100%',
-            padding: '7px 10px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: 10,
-            color: '#c9d1d9',
-            fontSize: 12,
-            outline: 'none',
-          }}
+          className="codex-search"
         />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 4px' }}>
+      <div className="codex-list">
         {search.trim() && filteredSessions.length === 0 && (
-          <div style={{ padding: '16px 14px', color: '#8b949e', fontSize: 12 }}>
+          <div className="codex-empty-state" style={{ paddingTop: 16, paddingBottom: 16 }}>
             No sessions match “{search.trim()}”.
           </div>
         )}
         {sessions.length === 0 && !showNewSession && (
-          <div style={{ padding: '20px 16px', color: '#484f58', fontSize: 13 }}>
+          <div className="codex-empty-state" style={{ paddingTop: 20, paddingBottom: 20 }}>
             No sessions yet. Click "+ New" to start a session.
           </div>
         )}
@@ -384,40 +270,27 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           <div
             key={s.id}
             onClick={() => onSelect(s.id)}
-            style={{
-              padding: '10px 14px',
-              cursor: 'pointer',
-              background: selected === s.id ? 'rgba(88, 166, 255, 0.10)' : 'transparent',
-              borderLeft: `3px solid ${statusColor[s.status] || '#8b949e'}`,
-              borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-            }}
+            className={`codex-list-item ${selected === s.id ? 'codex-list-item-active' : ''}`}
+            style={{ borderLeftColor: statusColor[s.status] || '#8b949e' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              <div className="codex-list-item-title">
                 {s.repository || 'Untitled'}
               </div>
               {s.status === 'failed' && (
                 <button
+                  className="codex-button codex-button-secondary"
                   onClick={(e) => {
                     e.stopPropagation();
                     onReconnect(s.id);
                   }}
-                  style={{
-                    padding: '2px 6px',
-                    background: '#21262d',
-                    border: '1px solid #30363d',
-                    borderRadius: 3,
-                    color: '#58a6ff',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                    marginLeft: 8,
-                  }}
+                  style={{ padding: '4px 8px', marginLeft: 8, color: '#58a6ff' }}
                 >
                   ↻
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 11, color: '#8b949e', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="codex-list-item-subtitle">
               <span>{s.branch || 'no branch'}</span>
               <span>·</span>
               <span>{s.status}</span>

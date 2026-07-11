@@ -149,51 +149,22 @@ export default function App() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif', background: '#0b1020', color: '#c9d1d9' }}>
+    <div className="codex-app-shell">
       {recoveredSessions.length > 0 && (
-        <div style={{
-          margin: '12px 12px 0',
-          background: 'rgba(88, 166, 255, 0.12)',
-          border: '1px solid rgba(88, 166, 255, 0.35)',
-          borderRadius: 10,
-          padding: '8px 16px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-        }}>
+        <div className="codex-banner">
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
             {recoveredSessions.length} session(s) recovered from previous session
           </span>
-            <button
-              onClick={() => setRecoveredSessions([])}
-              style={{
-                padding: '4px 8px',
-                background: 'rgba(13, 17, 23, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: 4,
-                color: '#8b949e',
-                fontSize: 11,
-              cursor: 'pointer',
-            }}
+          <button
+            className="codex-button codex-button-secondary"
+            onClick={() => setRecoveredSessions([])}
           >
             Dismiss
           </button>
         </div>
       )}
 
-      <header style={{
-        margin: '12px',
-        padding: '12px 16px',
-        borderRadius: 14,
-        background: 'rgba(13, 17, 23, 0.82)',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 16,
-        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.25)',
-      }}>
+      <header className="codex-page-header">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Codex Control</div>
           <div style={{ fontSize: 18, fontWeight: 600, color: '#f0f6fc' }}>
@@ -202,10 +173,10 @@ export default function App() {
           <div style={{ fontSize: 12, color: '#8b949e' }}>
             {activeSession
               ? `${activeSession.branch || 'detached'} · ${activeSession.status}`
-              : 'Start or select a session to continue'}
+            : 'Start or select a session to continue'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div className="codex-chip-list">
           <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'} />
           <Pill label="Model" value={settings.remoteLlamaCpp.model} />
           <Pill label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
@@ -213,7 +184,7 @@ export default function App() {
         </div>
       </header>
 
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 12, padding: '0 12px 12px' }}>
+      <div className="codex-shell-grid">
         <SessionList
           sessions={sessions}
           selected={selectedSession}
@@ -224,51 +195,19 @@ export default function App() {
           onSettingsChange={handleSettingsChange}
         />
 
-        <div style={{
-          flex: 1,
-          minWidth: 0,
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 420px',
-          gap: 12,
-        }}>
-          <section style={{
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            borderRadius: 14,
-            background: 'rgba(13, 17, 23, 0.82)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              padding: '10px 14px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12,
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 12, color: '#8b949e' }}>Session console</span>
-                <span style={{ fontSize: 13, color: '#f0f6fc' }}>{selectedSession || 'Select a session'}</span>
+        <div className="codex-main-grid">
+          <section className="codex-panel">
+            <div className="codex-panel-header">
+              <div className="codex-panel-title">
+                <span className="codex-kicker">Session console</span>
+                <span className="codex-panel-heading">{selectedSession || 'Select a session'}</span>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {(['terminal', 'diff', 'approvals'] as Tab[]).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    style={{
-                      padding: '6px 10px',
-                      background: activeTab === tab ? 'rgba(88, 166, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: 999,
-                      color: activeTab === tab ? '#58a6ff' : '#8b949e',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      textTransform: 'capitalize',
-                      position: 'relative',
-                    }}
+                    className={`codex-button ${activeTab === tab ? 'codex-button-info' : 'codex-button-secondary'}`}
                   >
                     {tab}
                     {tab === 'approvals' && pendingApprovalCount > 0 && (
@@ -305,25 +244,11 @@ export default function App() {
             </div>
           </section>
 
-          <section style={{
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            borderRadius: 14,
-            background: 'rgba(13, 17, 23, 0.82)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              padding: '10px 14px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 12, color: '#8b949e' }}>Conversation</span>
-                <span style={{ fontSize: 13, color: '#f0f6fc' }}>Prompt, response, tools</span>
+          <section className="codex-panel">
+            <div className="codex-panel-header">
+              <div className="codex-panel-title">
+                <span className="codex-kicker">Conversation</span>
+                <span className="codex-panel-heading">Prompt, response, tools</span>
               </div>
               <div style={{ fontSize: 11, color: '#8b949e' }}>Ctrl/Cmd + 1, 2, 3</div>
             </div>
@@ -333,19 +258,7 @@ export default function App() {
           </section>
         </div>
       </div>
-      <footer style={{
-        margin: '0 12px 12px',
-        padding: '8px 14px',
-        borderRadius: 12,
-        background: 'rgba(13, 17, 23, 0.72)',
-        border: '1px solid rgba(255, 255, 255, 0.06)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 12,
-        fontSize: 11,
-        color: '#8b949e',
-      }}>
+      <footer className="codex-footer">
         <span>{sessions.length} session{sessions.length === 1 ? '' : 's'} tracked</span>
         <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
         <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : 'Default Codex profile active'}</span>
@@ -356,20 +269,9 @@ export default function App() {
 
 function Pill({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      padding: '6px 10px',
-      borderRadius: 999,
-      background: 'rgba(255, 255, 255, 0.03)',
-      border: '1px solid rgba(255, 255, 255, 0.08)',
-      color: '#c9d1d9',
-      fontSize: 12,
-      maxWidth: '100%',
-    }}>
-      <span style={{ color: '#8b949e' }}>{label}</span>
-      <span style={{ color: '#f0f6fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+    <div className="codex-chip">
+      <span className="codex-chip-label">{label}</span>
+      <span className="codex-chip-value">{value}</span>
     </div>
   );
 }

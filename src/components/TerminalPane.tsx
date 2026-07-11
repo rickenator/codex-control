@@ -45,7 +45,7 @@ export default function TerminalPane({ sessionId, compact = false }: Props) {
   }, [sessionId]);
 
   return (
-    <div ref={containerRef} style={{ flex: 1, minHeight: 0, background: compact ? 'transparent' : '#0d1117', padding: compact ? 0 : 6 }}>
+    <div ref={containerRef} className={`codex-terminal-pane${compact ? ' compact' : ''}`}>
       {!sessionId && (
         <div style={{ color: '#8b949e', fontFamily: 'monospace', fontSize: 12, padding: 8 }}>
           Start a session to open the real Codex terminal.

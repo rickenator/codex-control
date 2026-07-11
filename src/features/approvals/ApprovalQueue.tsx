@@ -61,8 +61,8 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
 
   if (!sessionId) {
     return (
-      <div style={{ flex: 1, overflow: 'auto', background: '#0d1117', padding: 12 }}>
-        <div style={{ color: '#484f58', fontSize: 13 }}>
+      <div className="codex-scroll-pane" style={{ padding: 12 }}>
+        <div className="codex-empty-state" style={{ paddingTop: 0 }}>
           No session selected. Approval queue will appear when commands require approval.
         </div>
       </div>
@@ -71,8 +71,8 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
 
   if (approvals.length === 0) {
     return (
-      <div style={{ flex: 1, overflow: 'auto', background: '#0d1117', padding: 12 }}>
-        <div style={{ color: '#484f58', fontSize: 13, textAlign: 'center', marginTop: 40, lineHeight: 1.5 }}>
+      <div className="codex-scroll-pane" style={{ padding: 12 }}>
+        <div className="codex-empty-state" style={{ marginTop: 40 }}>
           No pending approvals.
           <br />
           Commands that need review will appear here as they are queued.
@@ -82,17 +82,17 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
   }
 
   return (
-    <div style={{ flex: 1, overflow: 'auto', background: '#0d1117' }}>
+    <div className="codex-scroll-pane">
       {approvals.map(approval => (
         <div
           key={approval.id}
           style={{
             padding: 12,
-            borderBottom: '1px solid #21262d',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
             borderLeft: `3px solid ${sandboxColors[approval.sandboxPolicy] || '#8b949e'}`,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div className="codex-toolbar" style={{ marginBottom: 8, padding: 0, borderBottom: 0, background: 'transparent' }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#f0f6fc' }}>
               Approval Required
             </span>
@@ -105,9 +105,9 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>COMMAND</div>
             <pre style={{
-              background: '#161b22',
+              background: 'rgba(255,255,255,0.03)',
               padding: 8,
-              borderRadius: 4,
+              borderRadius: 8,
               fontSize: 12,
               fontFamily: 'monospace',
               color: '#c9d1d9',
@@ -162,34 +162,14 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button
+              className="codex-button codex-button-primary"
               onClick={() => handleApprove(approval.id)}
-              style={{
-                flex: 1,
-                padding: '6px 12px',
-                background: '#238636',
-                border: 'none',
-                borderRadius: 4,
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
             >
               ✓ Approve
             </button>
             <button
+              className="codex-button codex-button-danger"
               onClick={() => handleReject(approval.id)}
-              style={{
-                flex: 1,
-                padding: '6px 12px',
-                background: '#da3633',
-                border: 'none',
-                borderRadius: 4,
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
             >
               ✗ Reject
             </button>

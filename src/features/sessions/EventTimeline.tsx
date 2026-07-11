@@ -104,7 +104,7 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
   if (!sessionId) {
     return (
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#484f58', fontSize: 13, padding: 16 }}>
+        <div className="codex-empty-state" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           No session selected. Start a session to see the timeline here.
         </div>
       </main>
@@ -114,20 +114,13 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: compact ? 'transparent' : '#0d1117' }}>
       {!compact && (
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e' }}>
           <span>Session: {sessionId}</span>
           <button
+            className="codex-button codex-button-secondary"
             onClick={handleReconnect}
             disabled={isReconnecting}
-            style={{
-              padding: '4px 8px',
-              background: '#21262d',
-              border: '1px solid #30363d',
-              borderRadius: 4,
-              color: '#58a6ff',
-              fontSize: 11,
-              cursor: isReconnecting ? 'not-allowed' : 'pointer',
-            }}
+            style={{ color: '#58a6ff', cursor: isReconnecting ? 'not-allowed' : 'pointer' }}
           >
             {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
           </button>
@@ -137,7 +130,7 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
       {/* Event timeline */}
       <div ref={timelineRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? '12px 14px' : 16 }}>
         {events.length === 0 && (
-          <div style={{ color: '#484f58', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
+          <div className="codex-empty-state">
             No events yet. Send a message to start the conversation.
           </div>
         )}
@@ -177,29 +170,18 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             disabled={isSending}
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              background: '#0d1117',
-              border: '1px solid #30363d',
-              borderRadius: 6,
-              color: '#c9d1d9',
-              fontSize: 13,
-              outline: 'none',
-            }}
+            className="codex-input"
+            style={{ flex: 1, background: '#0d1117' }}
           />
           <button
+            className="codex-button codex-button-primary"
             onClick={handleSend}
             disabled={isSending || !input.trim()}
             style={{
               padding: '8px 16px',
-              background: input.trim() ? '#238636' : '#30363d',
-              border: 'none',
-              borderRadius: 6,
+              background: input.trim() ? 'rgba(35, 134, 54, 0.92)' : 'rgba(255, 255, 255, 0.06)',
               color: '#fff',
-              fontSize: 13,
               cursor: input.trim() ? 'pointer' : 'not-allowed',
-              fontWeight: 500,
             }}
           >
             {isSending ? '...' : 'Send'}

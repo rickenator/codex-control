@@ -29,7 +29,7 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 | M4 | Git status and unified diff | ⏳ Pending |
 | M5 | Session browser and persistence | ⏳ Pending |
 | M6 | Local llama.cpp provider validation | ⏳ Pending |
-| M7 | Packaging for Ubuntu (AppImage + .deb) | ⏳ Pending |
+| M7 | Packaging for Ubuntu (AppImage + .deb) | ✅ Done |
 | M8 | Dogfood on a non-ATT-1 project | ⏳ Pending |
 
 ## Key design rule

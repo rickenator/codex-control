@@ -174,8 +174,8 @@ export default function DiffViewer({ sessionId, repository }: Props) {
 
   if (!sessionId || !repository) {
     return (
-      <div style={{ flex: 1, overflow: 'auto', background: '#0d1117', padding: 12 }}>
-        <div style={{ color: '#484f58', fontSize: 13 }}>
+      <div className="codex-scroll-pane" style={{ padding: 12 }}>
+        <div className="codex-empty-state" style={{ paddingTop: 0 }}>
           No repository selected. Diff view will appear when a session with a repository is active.
         </div>
       </div>
@@ -184,15 +184,12 @@ export default function DiffViewer({ sessionId, repository }: Props) {
 
   if (statusEntries.length === 0) {
     return (
-      <div style={{ flex: 1, overflow: 'auto', background: '#0d1117' }}>
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#8b949e' }}>Working tree status</span>
-          <button onClick={handleRefresh} style={{
-            padding: '4px 8px', background: '#21262d', border: '1px solid #30363d',
-            borderRadius: 4, color: '#58a6ff', fontSize: 11, cursor: 'pointer',
-          }}>↻ Refresh</button>
+      <div className="codex-scroll-pane">
+        <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e' }}>
+          <span>Working tree status</span>
+          <button className="codex-button codex-button-secondary" onClick={handleRefresh} style={{ color: '#58a6ff' }}>↻ Refresh</button>
         </div>
-        <div style={{ padding: 20, textAlign: 'center', color: '#484f58', fontSize: 13 }}>
+        <div className="codex-empty-state">
           Working tree is clean. No changes detected.
         </div>
       </div>
@@ -202,30 +199,27 @@ export default function DiffViewer({ sessionId, repository }: Props) {
   const selectedEntry = statusEntries.find(e => e.path === selectedPath);
 
   return (
-    <div style={{ flex: 1, overflow: 'auto', background: '#0d1117' }}>
+    <div className="codex-scroll-pane">
       {/* Header */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: '#8b949e' }}>
+      <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e' }}>
+        <span>
           {statusEntries.length} change{statusEntries.length !== 1 ? 's' : ''} detected
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={handleRefresh} style={{
-            padding: '4px 8px', background: '#21262d', border: '1px solid #30363d',
-            borderRadius: 4, color: '#58a6ff', fontSize: 11, cursor: 'pointer',
-          }}>↻ Refresh</button>
+          <button className="codex-button codex-button-secondary" onClick={handleRefresh} style={{ color: '#58a6ff' }}>↻ Refresh</button>
         </div>
       </div>
 
       <div style={{ display: 'flex', height: 'calc(100% - 41px)' }}>
         {/* File list */}
-        <div style={{ width: 220, borderRight: '1px solid #21262d', overflowY: 'auto' }}>
+        <div className="codex-diff-list">
           {statusEntries.map(entry => (
             <div
               key={entry.path}
               onClick={() => loadHunks(entry.path)}
               style={{
-                padding: '6px 12px', cursor: 'pointer',
-                background: selectedPath === entry.path ? '#161b22' : 'transparent',
+                padding: '8px 12px', cursor: 'pointer',
+                background: selectedPath === entry.path ? 'rgba(88, 166, 255, 0.10)' : 'transparent',
                 display: 'flex', alignItems: 'center', gap: 8,
               }}
             >
@@ -240,17 +234,17 @@ export default function DiffViewer({ sessionId, repository }: Props) {
         </div>
 
         {/* Diff content with per-hunk controls */}
-        <div style={{ flex: 1, overflow: 'auto', background: '#0d1117' }}>
+        <div className="codex-scroll-pane">
           {!selectedEntry ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#484f58', fontSize: 13, marginTop: 40 }}>
+            <div className="codex-empty-state" style={{ marginTop: 40 }}>
               Select a file to view the diff.
             </div>
           ) : loading ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#8b949e', fontSize: 13 }}>
+            <div className="codex-empty-state" style={{ marginTop: 40 }}>
               Loading hunks...
             </div>
           ) : hunks.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#484f58', fontSize: 13 }}>
+            <div className="codex-empty-state" style={{ marginTop: 40 }}>
               No diff available for this file.
             </div>
           ) : (
@@ -259,28 +253,22 @@ export default function DiffViewer({ sessionId, repository }: Props) {
               {actionResult && (
                 <div style={{
                   padding: '6px 16px', fontSize: 12,
-                  background: actionResult.type === 'success' ? '#0d1117' : '#3d1f1f',
+                  background: actionResult.type === 'success' ? 'rgba(63, 185, 80, 0.08)' : 'rgba(248, 81, 73, 0.10)',
                   color: actionResult.type === 'success' ? '#3fb950' : '#f85149',
-                  borderBottom: '1px solid #21262d',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
                 }}>
                   {actionResult.message}
                 </div>
               )}
               <div style={{
-                padding: '6px 16px', borderBottom: '1px solid #21262d',
+                padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
                 display: 'flex', gap: 6, alignItems: 'center',
               }}>
                 <span style={{ fontSize: 12, color: '#8b949e' }}>
                   {hunks.length} hunk{hunks.length !== 1 ? 's' : ''} in {selectedPath}
                 </span>
-                <button onClick={handleAcceptAll} style={{
-                  padding: '3px 8px', background: '#238636', border: 'none',
-                  borderRadius: 4, color: '#fff', fontSize: 11, cursor: 'pointer',
-                }}>✓ Accept All</button>
-                <button onClick={handleRejectAll} style={{
-                  padding: '3px 8px', background: '#21262d', border: '1px solid #30363d',
-                  borderRadius: 4, color: '#f85149', fontSize: 11, cursor: 'pointer',
-                }}>✗ Reject All</button>
+                <button className="codex-button codex-button-primary" onClick={handleAcceptAll}>✓ Accept All</button>
+                <button className="codex-button codex-button-danger" onClick={handleRejectAll}>✗ Reject All</button>
               </div>
 
               {/* Hunks */}
@@ -292,42 +280,31 @@ export default function DiffViewer({ sessionId, repository }: Props) {
 
                 return (
                   <div key={hunk.id} style={{
-                    borderBottom: '1px solid #21262d',
-                    background: isAccepted ? '#0d1a0d' : isRejected ? '#1a0d0d' : 'transparent',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    background: isAccepted ? 'rgba(63, 185, 80, 0.05)' : isRejected ? 'rgba(248, 81, 73, 0.05)' : 'transparent',
                   }}>
                     {/* Hunk header */}
                     <div style={{
-                      padding: '4px 16px', fontSize: 11, color: statusColor,
-                      background: '#161b22', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 16px', fontSize: 11, color: statusColor,
+                      background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
                       <span>{hunk.header}</span>
                       {statusLabel && <span style={{ fontWeight: 600 }}>{statusLabel}</span>}
                     </div>
 
                     {/* Hunk content */}
-                    <pre style={{
-                      margin: 0, padding: '8px 16px', fontFamily: 'monospace', fontSize: 12,
-                      lineHeight: 1.5, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    }}>
+                    <pre className="codex-code-block">
                       {renderDiffLines(hunk.content)}
                     </pre>
 
                     {/* Per-hunk actions */}
-                    <div style={{
-                      padding: '4px 16px 8px', display: 'flex', gap: 6,
-                    }}>
-                      <button onClick={() => handleAcceptHunk(hunk.id)} disabled={isAccepted || isRejected} style={{
-                        padding: '3px 10px', background: isAccepted ? '#238636' : '#21262d',
-                        border: isAccepted ? 'none' : '1px solid #30363d',
-                        borderRadius: 4, color: isAccepted ? '#fff' : '#3fb950',
-                        fontSize: 11, cursor: isAccepted || isRejected ? 'default' : 'pointer',
-                      }}>✓ Accept</button>
-                      <button onClick={() => handleRejectHunk(hunk.id)} disabled={isRejected || isAccepted} style={{
-                        padding: '3px 10px', background: isRejected ? '#21262d' : '#21262d',
-                        border: isRejected ? 'none' : '1px solid #30363d',
-                        borderRadius: 4, color: isRejected ? '#f85149' : '#f85149',
-                        fontSize: 11, cursor: isRejected || isAccepted ? 'default' : 'pointer',
-                      }}>✗ Reject</button>
+                    <div style={{ padding: '4px 16px 8px', display: 'flex', gap: 6 }}>
+                      <button className="codex-button codex-button-primary" onClick={() => handleAcceptHunk(hunk.id)} disabled={isAccepted || isRejected} style={{ opacity: isAccepted || isRejected ? 0.9 : 1 }}>
+                        ✓ Accept
+                      </button>
+                      <button className="codex-button codex-button-danger" onClick={() => handleRejectHunk(hunk.id)} disabled={isRejected || isAccepted} style={{ opacity: isRejected || isAccepted ? 0.9 : 1 }}>
+                        ✗ Reject
+                      </button>
                     </div>
                   </div>
                 );
