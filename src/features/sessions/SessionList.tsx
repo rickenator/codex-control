@@ -87,6 +87,9 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       .map(([repository]) => repository);
   }, [sessions]);
 
+  const remoteProfileReady = Boolean(baseUrl.trim() && model.trim());
+  const canLaunchRemote = provider !== 'remote_llamacpp' || remoteProfileReady;
+
   const launchSession = async () => {
     let nextRepository = repository.trim();
     if (!nextRepository) {
@@ -206,29 +209,44 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         </div>
 
         <div className="codex-form-card" style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600 }}>Default profile</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <span style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600 }}>Launch profile</span>
               <span style={{ fontSize: 11, color: '#8b949e' }}>
-                {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'}
+                Saved default: {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'}
               </span>
             </div>
+            <div className="codex-chip" style={{ padding: '4px 8px' }}>
+              <span className="codex-chip-label">Mode</span>
+              <span className="codex-chip-value">{provider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'}</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <button
-              aria-label="Save default launch profile"
               className="codex-button codex-button-primary"
+              aria-label="Save default launch profile"
               onClick={() => onSettingsChange({
                 defaultProvider: provider,
                 remoteLlamaCpp: { baseUrl, model, apiKey },
               })}
             >
-              Save profile
+              Save as default
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={async () => {
+                await onTestRemote({ baseUrl, model, apiKey });
+              }}
+              disabled={provider === 'remote_llamacpp' && !remoteProfileReady}
+            >
+              Test connection
             </button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <MiniRow label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
             <MiniRow label="Model" value={settings.remoteLlamaCpp.model} />
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button
               className="codex-button codex-button-secondary"
               onClick={() => {
@@ -240,15 +258,9 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             >
               Reset local draft
             </button>
-            <button
-              className="codex-button codex-button-secondary"
-              onClick={async () => {
-                await onTestRemote({ baseUrl, model, apiKey });
-              }}
-              disabled={!baseUrl.trim() || !model.trim()}
-            >
-              Test connection
-            </button>
+            <span className="codex-help" style={{ alignSelf: 'center' }}>
+              Launch uses this draft; save it to change the default.
+            </span>
           </div>
         </div>
 
@@ -304,10 +316,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp')}
               className="codex-select"
               style={{ marginBottom: 8 }}
-              >
-                <option value="remote_llamacpp">Remote llama.cpp</option>
-                <option value="default">Default Codex</option>
-              </select>
+            >
+              <option value="remote_llamacpp">Remote llama.cpp</option>
+              <option value="default">Default Codex</option>
+            </select>
             {provider === 'remote_llamacpp' && (
               <>
                 <input
@@ -336,26 +348,15 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 />
               </>
             )}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <button
-                className="codex-button codex-button-primary"
-                onClick={() => onSettingsChange({
-                  defaultProvider: 'remote_llamacpp',
-                  remoteLlamaCpp: { baseUrl, model, apiKey },
-                })}
-              >
-                Save as default
-              </button>
-            </div>
             <button
               className="codex-button codex-button-secondary"
-              disabled={provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())}
+              disabled={provider === 'remote_llamacpp' && !canLaunchRemote}
               onClick={() => void launchSession()}
               style={{
                 width: '100%',
-                background: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
+                background: provider === 'remote_llamacpp' && !canLaunchRemote ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
                 color: '#fff',
-                cursor: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'not-allowed' : 'pointer',
+                cursor: provider === 'remote_llamacpp' && !canLaunchRemote ? 'not-allowed' : 'pointer',
               }}
             >
               Start Session
@@ -373,6 +374,11 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             >
               Browse workspace…
             </button>
+            {provider === 'remote_llamacpp' && !remoteProfileReady && (
+              <div className="codex-help" style={{ marginTop: 4 }}>
+                Base URL and model are required for remote launches.
+              </div>
+            )}
             {recentWorkspaces.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <div className="codex-help" style={{ marginBottom: 8 }}>Recent workspaces</div>
