@@ -177,6 +177,18 @@ export default function App() {
     }
   };
 
+  const handleOpenPath = async (targetPath: string, label: string) => {
+    try {
+      const opened = await window.codexApi.openPath(targetPath);
+      if (!opened) {
+        throw new Error('File manager could not open the path');
+      }
+      setNotice({ kind: 'success', message: `${label} opened.` });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not open ${label.toLowerCase()}: ${(e as Error).message}` });
+    }
+  };
+
   const handleApprove = async (id: string) => {
     try {
       const approved = await window.codexApi.approveCommand(id);
@@ -286,6 +298,14 @@ export default function App() {
                     Copy repo
                   </button>
                 )}
+                {activeSession?.repository && (
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => handleOpenPath(activeSession.repository, 'Workspace')}
+                  >
+                    Open folder
+                  </button>
+                )}
                 {activeSession?.status === 'running' && selectedSession && (
                   <button
                     className="codex-button codex-button-danger"
@@ -331,6 +351,7 @@ export default function App() {
                   onApprove={handleApprove}
                   onReject={handleReject}
                   onCopy={handleCopyText}
+                  onOpen={handleOpenPath}
                   onError={(message) => setNotice({ kind: 'error', message })}
                 />
               )}

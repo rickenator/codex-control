@@ -105,4 +105,6 @@ contextBridge.exposeInMainWorld('codexApi', {
   },
   copyText: (text: string) =>
     ipcRenderer.invoke('ui:copy-text', text),
+  openPath: (targetPath: string) =>
+    ipcRenderer.invoke('ui:open-path', targetPath),
 });

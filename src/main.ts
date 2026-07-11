@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, clipboard, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, ipcMain, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -520,6 +520,14 @@ ipcMain.handle('ui:copy-text', (_event, text: string) => {
   try {
     clipboard.writeText(text);
     return true;
+  } catch {
+    return false;
+  }
+});
+ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {
+  try {
+    const result = await shell.openPath(targetPath);
+    return result === '';
   } catch {
     return false;
   }
