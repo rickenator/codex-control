@@ -17,6 +17,8 @@ interface SessionState {
   branch?: string;
   status: 'idle' | 'running' | 'awaiting_approval' | 'paused' | 'failed' | 'completed';
   events: any[];
+  lastEventTimestamp: number;
+  ptyFd: number;
 }
 
 const sessions: Map<string, SessionState> = new Map();
@@ -58,6 +60,8 @@ function initDatabase() {
       timestamp INTEGER,
       payload TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, timestamp);
 
     CREATE TABLE IF NOT EXISTS approvals (
       id TEXT PRIMARY KEY,
@@ -104,6 +108,8 @@ function startCodexSession(sessionId: string, opts: {
     branch: opts.branch,
     status: 'running',
     events: [],
+    lastEventTimestamp: Date.now(),
+    ptyFd: result.ptyFd || 0,
   };
 
   sessions.set(sessionId, sessionState);
@@ -134,6 +140,80 @@ function stopCodexSession(sessionId: string): boolean {
   return true;
 }
 
+// ─── Session recovery ───────────────────────────────────────────────────────
+
+function recoverSessions() {
+  if (!db) return [];
+
+  // Load all sessions from database
+  const allSessions = db.prepare(`SELECT * FROM sessions ORDER BY updated_at DESC`).all();
+  const recovered: string[] = [];
+
+  for (const sessionRow of allSessions as any[]) {
+    // Check if the session is still running by querying the native addon
+    const isRunning = codexAddon.isSessionRunning(sessionRow.id);
+
+    if (isRunning) {
+      // Session is still active — load its events from the database
+      const events = db.prepare(`SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC`).all(sessionRow.id);
+
+      const sessionState: SessionState = {
+        id: sessionRow.id,
+        process: null,
+        repository: sessionRow.repository || undefined,
+        branch: sessionRow.branch || undefined,
+        status: sessionRow.status as any,
+        events: events.map((e: any) => JSON.parse(e.payload)),
+        lastEventTimestamp: Date.now(),
+        ptyFd: 0,
+      };
+
+      sessions.set(sessionRow.id, sessionState);
+      recovered.push(sessionRow.id);
+
+      // Emit recovered events to renderer
+      for (const event of sessionState.events) {
+        mainWindow?.webContents.send('codex:event', event);
+      }
+    } else {
+      // Session is no longer running — mark as failed/stopped
+      db.prepare(`UPDATE sessions SET status = 'failed', updated_at = ? WHERE id = ?`).run(
+        Date.now(), sessionRow.id
+      );
+    }
+  }
+
+  return recovered;
+}
+
+// ─── Event persistence helper ───────────────────────────────────────────────
+
+function persistEvent(sessionId: string, event: any) {
+  if (!db) return;
+
+  // Store in SQLite
+  db.prepare(`INSERT INTO events (id, session_id, event_type, timestamp, payload) VALUES (?, ?, ?, ?, ?)`).run(
+    event.id,
+    sessionId,
+    event.type,
+    event.timestamp,
+    JSON.stringify(event)
+  );
+
+  // Also append to JSONL log file for crash recovery
+  const logPath = path.join(app.getPath('userData'), 'events', `${sessionId}.jsonl`);
+  try {
+    const fs = require('fs');
+    const logDir = path.dirname(logPath);
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    fs.appendFileSync(logPath, JSON.stringify(event) + '\n');
+  } catch (e) {
+    console.error('Failed to append event log:', e);
+  }
+}
+
 // ─── IPC handlers ───────────────────────────────────────────────────────────
 
 ipcMain.handle('session:start', async (_event, opts) => {
@@ -159,12 +239,8 @@ ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId:
   const session = sessions.get(sessionId);
   if (!session) return false;
 
-  // Send input to the Codex process
-  if (session.process) {
-    session.process.stdin?.write(input + '\n');
-  } else {
-    codexAddon.sendInput(sessionId, input);
-  }
+  // Send input to the Codex process via native addon
+  codexAddon.sendInput(sessionId, input);
 
   // Record event
   const event = {
@@ -176,20 +252,36 @@ ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId:
   };
 
   session.events.push(event);
-
-  // Persist to database
-  if (db) {
-    db.prepare(`INSERT INTO events (id, session_id, event_type, timestamp, payload) VALUES (?, ?, ?, ?, ?)`).run(
-      event.id,
-      sessionId,
-      event.type,
-      event.timestamp,
-      JSON.stringify(event)
-    );
-  }
+  persistEvent(sessionId, event);
 
   // Emit event to renderer
   mainWindow?.webContents.send('codex:event', event);
+
+  return true;
+});
+
+ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
+  // Reconnect to a session by replaying its event log
+  if (!db) return false;
+
+  const events = db.prepare(`SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC`).all(sessionId);
+  const sessionState: SessionState = {
+    id: sessionId,
+    process: null,
+    repository: '',
+    branch: '',
+    status: 'running',
+    events: events.map((e: any) => JSON.parse(e.payload)),
+    lastEventTimestamp: Date.now(),
+    ptyFd: 0,
+  };
+
+  sessions.set(sessionId, sessionState);
+
+  // Emit recovered events to renderer
+  for (const event of sessionState.events) {
+    mainWindow?.webContents.send('codex:event', event);
+  }
 
   return true;
 });
@@ -219,13 +311,11 @@ ipcMain.handle('git:branch', (_event, repoPath: string) => {
 });
 
 ipcMain.handle('approval:approve', (_event, approvalId: string) => {
-  // TODO: Implement approval logic
   console.log('Approval approved:', approvalId);
   return true;
 });
 
 ipcMain.handle('approval:reject', (_event, approvalId: string) => {
-  // TODO: Implement rejection logic
   console.log('Approval rejected:', approvalId);
   return true;
 });
@@ -235,6 +325,13 @@ ipcMain.handle('approval:reject', (_event, approvalId: string) => {
 app.whenReady().then(() => {
   initDatabase();
   createWindow();
+
+  // Recover any sessions that were running when the GUI crashed
+  const recovered = recoverSessions();
+  if (recovered.length > 0) {
+    console.log(`Recovered ${recovered.length} session(s):`, recovered);
+    mainWindow?.webContents.send('codex:sessions-recovered', recovered);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

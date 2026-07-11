@@ -13,6 +13,7 @@ interface Props {
   selected: string | null;
   onSelect: (id: string) => void;
   onStartSession: () => void;
+  onReconnect: (sessionId: string) => void;
 }
 
 const statusColor: Record<string, string> = {
@@ -25,7 +26,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
 
   return (
@@ -120,8 +121,30 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               borderLeft: `3px solid ${statusColor[s.status] || '#8b949e'}`,
             }}
           >
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {s.repository || 'Untitled'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                {s.repository || 'Untitled'}
+              </div>
+              {s.status === 'failed' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReconnect(s.id);
+                  }}
+                  style={{
+                    padding: '2px 6px',
+                    background: '#21262d',
+                    border: '1px solid #30363d',
+                    borderRadius: 3,
+                    color: '#58a6ff',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    marginLeft: 8,
+                  }}
+                >
+                  ↻
+                </button>
+              )}
             </div>
             <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>
               {s.branch} · {s.status}

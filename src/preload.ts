@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('session:events', sessionId),
   sendInput: (sessionId: string, input: string) =>
     ipcRenderer.invoke('session:send-input', { sessionId, input }),
+  reconnectSession: (sessionId: string) =>
+    ipcRenderer.invoke('session:reconnect', sessionId),
 
   // Git
   gitStatus: (repoPath: string) =>
@@ -26,6 +28,13 @@ contextBridge.exposeInMainWorld('codexApi', {
     const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
     ipcRenderer.on('codex:event', handler);
     return () => ipcRenderer.removeListener('codex:event', handler);
+  },
+
+  // Session recovery notifications
+  onSessionsRecovered: (callback: (sessionIds: string[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionIds: string[]) => callback(sessionIds);
+    ipcRenderer.on('codex:sessions-recovered', handler);
+    return () => ipcRenderer.removeListener('codex:sessions-recovered', handler);
   },
 
   // Approvals

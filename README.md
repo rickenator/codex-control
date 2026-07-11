@@ -24,7 +24,7 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 |-----------|-------------|--------|
 | M0 | Repository scaffold, Electron shell, C++ native addon stubs, React layout | ✅ Done |
 | M1 | Codex process/app-server connection and event capture | ✅ Done |
-| M2 | Prompt/response timeline and reconnect | 🔄 In progress |
+| M2 | Prompt/response timeline and reconnect | ✅ Done |
 | M3 | Approval UI with exact command details | ⏳ Pending |
 | M4 | Git status and unified diff | ⏳ Pending |
 | M5 | Session browser and persistence | ⏳ Pending |

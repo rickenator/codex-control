@@ -10,11 +10,23 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('terminal');
   const [sessions, setSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
 
   useEffect(() => {
     // Load sessions on mount
     window.codexApi.listSessions().then(setSessions);
-  }, []);
+
+    // Listen for session recovery notifications
+    const unsubscribe = window.codexApi.onSessionsRecovered((sessionIds: string[]) => {
+      setRecoveredSessions(sessionIds);
+      // Auto-select the first recovered session if none is selected
+      if (!selectedSession && sessionIds.length > 0) {
+        setSelectedSession(sessionIds[0]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedSession]);
 
   const handleStartSession = async () => {
     try {
@@ -28,14 +40,60 @@ export default function App() {
     }
   };
 
+  const handleReconnect = async (sessionId: string) => {
+    try {
+      await window.codexApi.reconnectSession(sessionId);
+      setSelectedSession(sessionId);
+    } catch (e) {
+      console.error('Failed to reconnect:', e);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', background: '#0d1117', color: '#c9d1d9' }}>
+      {/* Recovery banner */}
+      {recoveredSessions.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 280,
+          right: 420,
+          background: '#1a3a5c',
+          border: '1px solid #58a6ff',
+          borderRadius: '0 0 8px 8px',
+          padding: '8px 16px',
+          zIndex: 1000,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 13, color: '#58a6ff' }}>
+            {recoveredSessions.length} session(s) recovered from previous session
+          </span>
+          <button
+            onClick={() => setRecoveredSessions([])}
+            style={{
+              padding: '4px 8px',
+              background: '#21262d',
+              border: '1px solid #30363d',
+              borderRadius: 4,
+              color: '#8b949e',
+              fontSize: 11,
+              cursor: 'pointer',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Left: Session list */}
       <SessionList
         sessions={sessions}
         selected={selectedSession}
         onSelect={setSelectedSession}
         onStartSession={handleStartSession}
+        onReconnect={handleReconnect}
       />
 
       {/* Center: Event timeline */}

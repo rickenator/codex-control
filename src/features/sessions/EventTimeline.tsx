@@ -36,6 +36,7 @@ export default function EventTimeline({ sessionId }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,6 +64,20 @@ export default function EventTimeline({ sessionId }: Props) {
       timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
     }
   }, [events]);
+
+  const handleReconnect = async () => {
+    if (!sessionId || isReconnecting) return;
+
+    setIsReconnecting(true);
+    try {
+      await window.codexApi.reconnectSession(sessionId);
+      // Events will be re-emitted via the onEvent listener
+    } catch (e) {
+      console.error('Failed to reconnect:', e);
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || !sessionId || isSending) return;
@@ -100,8 +115,23 @@ export default function EventTimeline({ sessionId }: Props) {
 
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e' }}>
-        Session: {sessionId}
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid #21262d', fontSize: 13, color: '#8b949e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Session: {sessionId}</span>
+        <button
+          onClick={handleReconnect}
+          disabled={isReconnecting}
+          style={{
+            padding: '4px 8px',
+            background: '#21262d',
+            border: '1px solid #30363d',
+            borderRadius: 4,
+            color: '#58a6ff',
+            fontSize: 11,
+            cursor: isReconnecting ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {isReconnecting ? 'Reconnecting...' : '↻ Reconnect'}
+        </button>
       </div>
 
       {/* Event timeline */}
