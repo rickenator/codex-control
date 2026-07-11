@@ -85,6 +85,41 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       .map(([repository]) => repository);
   }, [sessions]);
 
+  const launchSession = async () => {
+    let nextRepository = repository.trim();
+    if (!nextRepository) {
+      const pickedRepository = await onPickRepository();
+      if (!pickedRepository) {
+        return;
+      }
+      nextRepository = pickedRepository;
+      setRepository(pickedRepository);
+      setShowNewSession(true);
+    }
+
+    if (provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())) {
+      return;
+    }
+
+    onStartSession({
+      repository: nextRepository || undefined,
+      branch: branch.trim() || undefined,
+      provider,
+      remoteLlamaCpp: provider === 'remote_llamacpp' ? {
+        baseUrl: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+      } : undefined,
+    });
+    onSettingsChange({
+      defaultProvider: provider,
+      remoteLlamaCpp: { baseUrl, model, apiKey },
+    });
+    setRepository('');
+    setBranch('');
+    setShowNewSession(false);
+  };
+
   useEffect(() => {
     setProvider(settings.defaultProvider);
     setBaseUrl(settings.remoteLlamaCpp.baseUrl);
@@ -115,17 +150,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       }
       if (event.key === 'Enter' && showNewSession) {
         event.preventDefault();
-        if (provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())) return;
-        onStartSession({
-          repository: repository.trim() || undefined,
-          branch: branch.trim() || undefined,
-          provider,
-          remoteLlamaCpp: provider === 'remote_llamacpp' ? {
-            baseUrl: baseUrl.trim() || undefined,
-            model: model.trim() || undefined,
-            apiKey: apiKey.trim() || undefined,
-          } : undefined,
-        });
+        void launchSession();
       }
       if (event.key === 'Escape' && showNewSession) {
         setShowNewSession(false);
@@ -134,7 +159,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, onStartSession]);
+  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, onStartSession, onPickRepository, onSettingsChange]);
 
   const filteredSessions = sessions.filter(session => {
     const haystack = [
@@ -323,25 +348,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <button
               className="codex-button codex-button-secondary"
               disabled={provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim())}
-              onClick={() => {
-                onStartSession({
-                  repository: repository.trim() || undefined,
-                  branch: branch.trim() || undefined,
-                  provider,
-                  remoteLlamaCpp: provider === 'remote_llamacpp' ? {
-                    baseUrl: baseUrl.trim() || undefined,
-                    model: model.trim() || undefined,
-                    apiKey: apiKey.trim() || undefined,
-                  } : undefined,
-                });
-                onSettingsChange({
-                  defaultProvider: provider,
-                  remoteLlamaCpp: { baseUrl, model, apiKey },
-                });
-                setRepository('');
-                setBranch('');
-                setShowNewSession(false);
-              }}
+              onClick={() => void launchSession()}
               style={{
                 width: '100%',
                 background: provider === 'remote_llamacpp' && (!baseUrl.trim() || !model.trim()) ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
