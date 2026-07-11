@@ -15,6 +15,7 @@ interface Props {
   sessionId: string | null;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onCopy: (text: string, label: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -25,7 +26,7 @@ const sandboxColors: Record<string, string> = {
   'auto-approve': '#58a6ff',
 };
 
-export default function ApprovalQueue({ sessionId, onApprove, onReject, onError }: Props) {
+export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, onError }: Props) {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
   useEffect(() => {
@@ -186,6 +187,18 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onError 
               onClick={() => handleReject(approval.id)}
             >
               ✗ Reject
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onCopy(approval.command, 'Command')}
+            >
+              Copy command
+            </button>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => onCopy(approval.workingDir, 'Working directory')}
+            >
+              Copy path
             </button>
           </div>
         </div>

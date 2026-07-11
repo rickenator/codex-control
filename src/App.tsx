@@ -153,6 +153,30 @@ export default function App() {
     }
   };
 
+  const handleStopSession = async (sessionId: string) => {
+    try {
+      const stopped = await window.codexApi.stopSession(sessionId);
+      if (!stopped) {
+        throw new Error('Session could not be stopped');
+      }
+      setNotice({ kind: 'info', message: 'Session stopped.' });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not stop session: ${(e as Error).message}` });
+    }
+  };
+
+  const handleCopyText = async (text: string, label: string) => {
+    try {
+      const copied = await window.codexApi.copyText(text);
+      if (!copied) {
+        throw new Error('Clipboard unavailable');
+      }
+      setNotice({ kind: 'success', message: `${label} copied to clipboard.` });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not copy ${label.toLowerCase()}: ${(e as Error).message}` });
+    }
+  };
+
   const handleApprove = async (id: string) => {
     try {
       const approved = await window.codexApi.approveCommand(id);
@@ -253,7 +277,23 @@ export default function App() {
                 <span className="codex-kicker">Session console</span>
                 <span className="codex-panel-heading">{selectedSession || 'Select a session'}</span>
               </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                {activeSession?.repository && (
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => handleCopyText(activeSession.repository, 'Repository path')}
+                  >
+                    Copy repo
+                  </button>
+                )}
+                {activeSession?.status === 'running' && selectedSession && (
+                  <button
+                    className="codex-button codex-button-danger"
+                    onClick={() => handleStopSession(selectedSession)}
+                  >
+                    Stop
+                  </button>
+                )}
                 {(['terminal', 'diff', 'approvals'] as Tab[]).map(tab => (
                   <button
                     key={tab}
@@ -290,6 +330,7 @@ export default function App() {
                   sessionId={selectedSession}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onCopy={handleCopyText}
                   onError={(message) => setNotice({ kind: 'error', message })}
                 />
               )}

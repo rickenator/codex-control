@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -515,6 +515,14 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
   };
   saveSettings();
   return appSettings;
+});
+ipcMain.handle('ui:copy-text', (_event, text: string) => {
+  try {
+    clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 app.whenReady().then(() => {

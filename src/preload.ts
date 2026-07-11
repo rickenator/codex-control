@@ -103,4 +103,6 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.on('ui:new-session', handler);
     return () => ipcRenderer.removeListener('ui:new-session', handler);
   },
+  copyText: (text: string) =>
+    ipcRenderer.invoke('ui:copy-text', text),
 });

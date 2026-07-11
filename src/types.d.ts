@@ -62,6 +62,7 @@ interface CodexAPI {
   onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => () => void;
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => () => void;
   onNewSession: (callback: () => void) => () => void;
+  copyText: (text: string) => Promise<boolean>;
 }
 
 interface SessionRecord {
