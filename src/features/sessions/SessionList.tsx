@@ -335,13 +335,15 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               {s.status === 'failed' && (
                 <button
                   className="codex-button codex-button-secondary"
+                  aria-label={`Retry session for ${s.repository || 'untitled workspace'}`}
+                  title="Retry session"
                   onClick={(e) => {
                     e.stopPropagation();
                     onReconnect(s.id);
                   }}
-                  style={{ padding: '4px 8px', marginLeft: 8, color: '#58a6ff' }}
+                  style={{ padding: '4px 10px', marginLeft: 8, color: '#58a6ff' }}
                 >
-                  ↻
+                  Retry
                 </button>
               )}
             </div>

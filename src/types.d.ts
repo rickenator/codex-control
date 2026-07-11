@@ -53,6 +53,7 @@ interface CodexAPI {
   onEvent: (callback: (event: any) => void) => () => void;
   onTerminalOutput: (callback: (output: { sessionId: string; data: string }) => void) => () => void;
   onSessionsRecovered: (callback: (sessionIds: string[]) => void) => () => void;
+  onSessionsUpdated: (callback: (sessions: any[]) => void) => () => void;
 
   // Approvals
   getPendingApprovals: (sessionId?: string) => Promise<any[]>;

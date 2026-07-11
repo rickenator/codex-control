@@ -120,6 +120,13 @@ function saveStore() {
   });
 }
 
+function emitSessionUpdate() {
+  mainWindow?.webContents.send(
+    'codex:sessions-updated',
+    [...records.values()].sort((left, right) => right.updated_at - left.updated_at),
+  );
+}
+
 function saveSettings() {
   if (!settingsPath) return;
   writeJsonAtomic(settingsPath, appSettings);
@@ -336,17 +343,26 @@ function gitApplyHunk(repository: string, filePath: string, hunkId: number, reve
 }
 
 function startSession(options: SessionOptions) {
+  const provider = options.provider || appSettings.defaultProvider;
   const repository = path.resolve(options.repository || process.cwd());
   if (!fs.statSync(repository).isDirectory()) {
     throw new Error(`Workspace is not a directory: ${repository}`);
   }
-
   const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const branch = options.branch || getBranch(repository);
+  return launchSession(sessionId, repository, options.branch || getBranch(repository), provider, options, false);
+}
+
+function launchSession(
+  sessionId: string,
+  repository: string,
+  branch: string,
+  provider: 'default' | 'remote_llamacpp',
+  options: SessionOptions,
+  isReconnect: boolean,
+) {
   const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
   const args = ['--no-alt-screen', '-C', repository];
   const env = { ...process.env };
-  const provider = options.provider || appSettings.defaultProvider;
   const resolvedRemote = {
     baseUrl: options.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
     model: options.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
@@ -401,7 +417,8 @@ function startSession(options: SessionOptions) {
     updated_at: Date.now(),
   });
   saveStore();
-  recordEvent(sessionId, 'system', `Started Codex in ${repository}`);
+  emitSessionUpdate();
+  recordEvent(sessionId, 'system', `${isReconnect ? 'Reconnected' : 'Started'} Codex in ${repository}`);
 
   terminal.onData((data: string) => terminalOutput(sessionId, data));
   terminal.onExit(({ exitCode }: { exitCode: number }) => {
@@ -409,6 +426,7 @@ function startSession(options: SessionOptions) {
     const record = records.get(sessionId);
     if (record) { record.status = state.status; record.updated_at = Date.now(); }
     saveStore();
+    emitSessionUpdate();
     recordEvent(sessionId, 'system', `Codex exited with code ${exitCode}`);
     sessions.delete(sessionId);
   });
@@ -423,6 +441,7 @@ function stopSession(sessionId: string) {
   const record = records.get(sessionId);
   if (record) { record.status = 'stopped'; record.updated_at = Date.now(); }
   saveStore();
+  emitSessionUpdate();
   return true;
 }
 
@@ -443,7 +462,32 @@ ipcMain.handle('session:resize', (_event, { sessionId, cols, rows }: { sessionId
   state.pty.resize(Math.max(2, cols), Math.max(2, rows));
   return true;
 });
-ipcMain.handle('session:reconnect', () => false);
+ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
+  const record = records.get(sessionId);
+  if (!record || sessions.has(sessionId)) return false;
+  const branch = record.branch || getBranch(record.repository);
+  launchSession(sessionId, record.repository, branch, record.provider || appSettings.defaultProvider, {
+    repository: record.repository,
+    branch,
+    provider: record.provider,
+    remoteLlamaCpp: record.provider === 'remote_llamacpp'
+      ? {
+          baseUrl: record.baseUrl,
+          model: record.model,
+          apiKey: appSettings.remoteLlamaCpp.apiKey,
+        }
+      : undefined,
+  }, true);
+  const updated = records.get(sessionId);
+  if (updated) {
+    updated.status = 'running';
+    updated.updated_at = Date.now();
+    records.set(sessionId, updated);
+    saveStore();
+  }
+  emitSessionUpdate();
+  return true;
+});
 
 ipcMain.handle('git:status', (_event, repository: string) => gitStatus(repository));
 ipcMain.handle('git:diff', (_event, repository: string, filePath: string) => gitDiff(repository, filePath));

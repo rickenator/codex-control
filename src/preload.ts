@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.on('codex:sessions-recovered', handler);
     return () => ipcRenderer.removeListener('codex:sessions-recovered', handler);
   },
+  onSessionsUpdated: (callback: (sessions: any[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessions: any[]) => callback(sessions);
+    ipcRenderer.on('codex:sessions-updated', handler);
+    return () => ipcRenderer.removeListener('codex:sessions-updated', handler);
+  },
 
   // Approvals
   getPendingApprovals: (sessionId?: string) =>

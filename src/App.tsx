@@ -53,9 +53,12 @@ export default function App() {
       });
     });
 
+    const unsubscribeSessions = window.codexApi.onSessionsUpdated(setSessions);
+
     return () => {
       unsubscribeRecovery();
       unsubscribeApproval();
+      unsubscribeSessions();
     };
   }, []);
 
