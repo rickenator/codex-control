@@ -59,6 +59,12 @@ The new session drawer can launch Codex against a remote `llama-server` endpoint
 - Leave the API key as the default `llama.cpp` unless your server expects something else.
 - The app passes the required Codex provider overrides, including `wire_api = "responses"`, for the spawned session.
 
+## Desktop ergonomics
+
+- Window size and maximized state are remembered between launches.
+- `Ctrl/Cmd+N` opens the new-session drawer from the native app menu.
+- The app uses a real Linux-style application menu for reload, zoom, developer tools, and fullscreen.
+
 ## Repository layout
 
 ```

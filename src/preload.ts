@@ -93,4 +93,9 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.on('codex:approval-processed', handler);
     return () => ipcRenderer.removeListener('codex:approval-processed', handler);
   },
+  onNewSession: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('ui:new-session', handler);
+    return () => ipcRenderer.removeListener('ui:new-session', handler);
+  },
 });

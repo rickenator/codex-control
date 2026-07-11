@@ -60,6 +60,7 @@ interface CodexAPI {
   rejectCommand: (approvalId: string) => Promise<boolean>;
   onApprovalRequest: (callback: (approval: any) => void) => () => void;
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => () => void;
+  onNewSession: (callback: () => void) => () => void;
 }
 
 interface Window {

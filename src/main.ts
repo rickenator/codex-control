@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -71,6 +71,7 @@ interface CodexEvent {
 let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
+let windowStatePath = '';
 let appSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
   remoteLlamaCpp: {
@@ -85,17 +86,27 @@ const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
 
 function createWindow() {
+  const windowState = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920,
+    ...windowState.bounds,
     minWidth: 960,
     minHeight: 640,
     title: 'Codex Control',
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
+  });
+  if (windowState.maximized) {
+    mainWindow.maximize();
+  }
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+  mainWindow.on('close', () => {
+    saveWindowState(mainWindow);
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
@@ -160,6 +171,38 @@ function initSettings() {
     if (error.code !== 'ENOENT') console.error('Could not read settings:', error);
   }
   saveSettings();
+}
+
+function loadWindowState() {
+  windowStatePath = path.join(app.getPath('userData'), 'codex-control-window-state.json');
+  const fallback = { bounds: { width: 1440, height: 920 }, maximized: false };
+  try {
+    const saved = JSON.parse(fs.readFileSync(windowStatePath, 'utf8')) as {
+      bounds?: { x?: number; y?: number; width?: number; height?: number };
+      maximized?: boolean;
+    };
+    return {
+      bounds: {
+        x: typeof saved.bounds?.x === 'number' ? saved.bounds.x : undefined,
+        y: typeof saved.bounds?.y === 'number' ? saved.bounds.y : undefined,
+        width: typeof saved.bounds?.width === 'number' ? saved.bounds.width : fallback.bounds.width,
+        height: typeof saved.bounds?.height === 'number' ? saved.bounds.height : fallback.bounds.height,
+      },
+      maximized: Boolean(saved.maximized),
+    };
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') console.error('Could not read window state:', error);
+    return fallback;
+  }
+}
+
+function saveWindowState(window: BrowserWindow | null) {
+  if (!window || !windowStatePath) return;
+  const data = {
+    bounds: window.getNormalBounds(),
+    maximized: window.isMaximized(),
+  };
+  writeJsonAtomic(windowStatePath, data);
 }
 
 function recordEvent(sessionId: string, type: string, content: string) {
@@ -428,6 +471,7 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
 app.whenReady().then(() => {
   initStore();
   initSettings();
+  Menu.setApplicationMenu(buildApplicationMenu());
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -436,5 +480,36 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   for (const id of sessions.keys()) stopSession(id);
+  saveWindowState(mainWindow);
   if (process.platform !== 'darwin') app.quit();
 });
+
+function buildApplicationMenu() {
+  return Menu.buildFromTemplate([
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Session',
+          accelerator: 'CommandOrControl+N',
+          click: () => mainWindow?.webContents.send('ui:new-session'),
+        },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quit' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload', label: 'Reload' },
+        { role: 'toggledevtools', label: 'Toggle Developer Tools' },
+        { type: 'separator' },
+        { role: 'resetzoom', label: 'Reset Zoom' },
+        { role: 'zoomin', label: 'Zoom In' },
+        { role: 'zoomout', label: 'Zoom Out' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Toggle Full Screen' },
+      ],
+    },
+  ]);
+}

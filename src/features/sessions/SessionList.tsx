@@ -70,6 +70,13 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     setApiKey(settings.remoteLlamaCpp.apiKey);
   }, [settings]);
 
+  useEffect(() => {
+    const unsubscribe = window.codexApi.onNewSession(() => {
+      setShowNewSession(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const filteredSessions = sessions.filter(session => {
     const haystack = [
       session.repository,
@@ -98,9 +105,9 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#f0f6fc' }}>Sessions</h3>
             <div style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>Active workspaces and launch profiles</div>
           </div>
-          <button
-            onClick={() => setShowNewSession(!showNewSession)}
-            style={{
+            <button
+              onClick={() => setShowNewSession(!showNewSession)}
+              style={{
               padding: '6px 10px',
               background: 'rgba(88, 166, 255, 0.12)',
               border: '1px solid rgba(88, 166, 255, 0.25)',
@@ -108,8 +115,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               color: '#58a6ff',
               fontSize: 12,
               cursor: 'pointer',
-            }}
-          >
+              }}
+            >
             + New
           </button>
         </div>
