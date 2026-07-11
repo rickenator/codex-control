@@ -19,6 +19,8 @@ interface GitHunk {
 interface Props {
   sessionId: string | null;
   repository?: string;
+  onCopyPath: (path: string, label: string) => void;
+  onOpenPath: (path: string, label: string) => void;
   onError?: (message: string) => void;
 }
 
@@ -40,7 +42,7 @@ const statusColors: Record<string, string> = {
   'U': '#f85149',
 };
 
-export default function DiffViewer({ sessionId, repository, onError }: Props) {
+export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPath, onError }: Props) {
   const [statusEntries, setStatusEntries] = useState<GitStatusEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [hunks, setHunks] = useState<GitHunk[]>([]);
@@ -202,16 +204,30 @@ export default function DiffViewer({ sessionId, repository, onError }: Props) {
   }
 
   const selectedEntry = statusEntries.find(e => e.path === selectedPath);
+  const repositoryLabel = repositoryLabelFromPath(repository);
 
   return (
     <div className="codex-scroll-pane">
       {/* Header */}
-      <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e' }}>
-        <span>
-          {statusEntries.length} change{statusEntries.length !== 1 ? 's' : ''} detected
-        </span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="codex-button codex-button-secondary" onClick={handleRefresh} style={{ color: '#58a6ff' }}>↻ Refresh</button>
+      <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ color: '#f0f6fc', fontWeight: 600 }}>
+            {repositoryLabel}
+          </span>
+          <span>
+            {statusEntries.length} change{statusEntries.length !== 1 ? 's' : ''} detected
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="codex-button codex-button-secondary" onClick={() => onCopyPath(repository || '', 'Repository path')} disabled={!repository}>
+            Copy path
+          </button>
+          <button className="codex-button codex-button-secondary" onClick={() => onOpenPath(repository || '', 'Repository')} disabled={!repository}>
+            Open folder
+          </button>
+          <button className="codex-button codex-button-secondary" onClick={handleRefresh} style={{ color: '#58a6ff' }}>
+            ↻ Refresh
+          </button>
         </div>
       </div>
 
@@ -228,12 +244,17 @@ export default function DiffViewer({ sessionId, repository, onError }: Props) {
                 display: 'flex', alignItems: 'center', gap: 8,
               }}
             >
-              <span style={{ fontSize: 11, color: statusColors[entry.x] || '#8b949e', fontWeight: 600, width: 16, textAlign: 'center' }}>
+              <span style={{ fontSize: 11, color: statusColors[entry.x] || '#8b949e', fontWeight: 700, width: 18, textAlign: 'center' }}>
                 {statusIcons[entry.x] || entry.x}
               </span>
-              <span style={{ fontSize: 12, color: selectedPath === entry.path ? '#58a6ff' : '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                {entry.path}
-              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, color: selectedPath === entry.path ? '#58a6ff' : '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {fileLabel(entry.path)}
+                </div>
+                <div style={{ fontSize: 10, color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {entry.path}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -267,13 +288,20 @@ export default function DiffViewer({ sessionId, repository, onError }: Props) {
               )}
               <div style={{
                 padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
-                display: 'flex', gap: 6, alignItems: 'center',
+                display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
               }}>
-                <span style={{ fontSize: 12, color: '#8b949e' }}>
-                  {hunks.length} hunk{hunks.length !== 1 ? 's' : ''} in {selectedPath}
-                </span>
-                <button className="codex-button codex-button-primary" onClick={handleAcceptAll}>✓ Accept All</button>
-                <button className="codex-button codex-button-danger" onClick={handleRejectAll}>✗ Reject All</button>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {selectedEntry?.path || selectedPath}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#8b949e' }}>
+                    {hunks.length} hunk{hunks.length !== 1 ? 's' : ''} · {selectedEntry ? `${selectedEntry.x || ' '} ${selectedEntry.y || ' '}`.trim() : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button className="codex-button codex-button-primary" onClick={handleAcceptAll}>✓ Accept All</button>
+                  <button className="codex-button codex-button-danger" onClick={handleRejectAll}>✗ Reject All</button>
+                </div>
               </div>
 
               {/* Hunks */}
@@ -320,4 +348,16 @@ export default function DiffViewer({ sessionId, repository, onError }: Props) {
       </div>
     </div>
   );
+}
+
+function fileLabel(filePath: string) {
+  const segments = filePath.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] || filePath;
+}
+
+function repositoryLabelFromPath(repository?: string) {
+  const trimmed = repository?.trim() || '';
+  if (!trimmed) return 'Repository';
+  const segments = trimmed.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] || trimmed;
 }

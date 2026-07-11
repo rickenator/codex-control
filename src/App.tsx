@@ -372,7 +372,15 @@ export default function App() {
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {activeTab === 'terminal' && <TerminalPane sessionId={selectedSession} compact />}
-              {activeTab === 'diff' && <DiffViewer sessionId={selectedSession} repository={activeSession?.repository} onError={(message) => setNotice({ kind: 'error', message })} />}
+              {activeTab === 'diff' && (
+                <DiffViewer
+                  sessionId={selectedSession}
+                  repository={activeSession?.repository}
+                  onCopyPath={handleCopyText}
+                  onOpenPath={handleOpenPath}
+                  onError={(message) => setNotice({ kind: 'error', message })}
+                />
+              )}
               {activeTab === 'approvals' && (
                 <ApprovalQueue
                   sessionId={selectedSession}
