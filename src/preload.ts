@@ -38,8 +38,22 @@ contextBridge.exposeInMainWorld('codexApi', {
   },
 
   // Approvals
+  getPendingApprovals: (sessionId?: string) =>
+    ipcRenderer.invoke('approval:get-pending', sessionId),
   approveCommand: (approvalId: string) =>
     ipcRenderer.invoke('approval:approve', approvalId),
   rejectCommand: (approvalId: string) =>
     ipcRenderer.invoke('approval:reject', approvalId),
+
+  // Approval notifications
+  onApprovalRequest: (callback: (approval: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('codex:approval-request', handler);
+    return () => ipcRenderer.removeListener('codex:approval-request', handler);
+  },
+  onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on('codex:approval-processed', handler);
+    return () => ipcRenderer.removeListener('codex:approval-processed', handler);
+  },
 });

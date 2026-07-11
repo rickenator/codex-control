@@ -23,6 +23,20 @@ interface SessionState {
 
 const sessions: Map<string, SessionState> = new Map();
 
+// Approval queue — shared across all sessions
+interface ApprovalRequest {
+  id: string;
+  sessionId: string;
+  command: string;
+  workingDir: string;
+  sandboxPolicy: string;
+  affectedPaths: string[];
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+const approvalQueue: ApprovalRequest[] = [];
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -68,6 +82,8 @@ function initDatabase() {
       session_id TEXT REFERENCES sessions(id),
       command TEXT,
       working_dir TEXT,
+      sandbox_policy TEXT DEFAULT 'on-request',
+      affected_paths TEXT,
       status TEXT DEFAULT 'pending',
       created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
@@ -136,6 +152,57 @@ function stopCodexSession(sessionId: string): boolean {
       Date.now(), sessionId
     );
   }
+
+  return true;
+}
+
+// ─── Approval management ────────────────────────────────────────────────────
+
+function addApprovalRequest(approval: Omit<ApprovalRequest, 'id' | 'timestamp'>): string {
+  const id = `approval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const fullApproval: ApprovalRequest = {
+    ...approval,
+    id,
+    timestamp: Date.now(),
+    status: 'pending',
+  };
+
+  approvalQueue.push(fullApproval);
+
+  // Persist to database
+  if (db) {
+    db.prepare(`INSERT INTO approvals (id, session_id, command, working_dir, sandbox_policy, affected_paths, status) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      id,
+      approval.sessionId,
+      approval.command,
+      approval.workingDir,
+      approval.sandboxPolicy,
+      JSON.stringify(approval.affectedPaths),
+      'pending'
+    );
+  }
+
+  // Emit to renderer
+  mainWindow?.webContents.send('codex:approval-request', fullApproval);
+
+  return id;
+}
+
+function processApproval(approvalId: string, approved: boolean): boolean {
+  const approval = approvalQueue.find(a => a.id === approvalId && a.status === 'pending');
+  if (!approval) return false;
+
+  approval.status = approved ? 'approved' : 'rejected';
+
+  // Update database
+  if (db) {
+    db.prepare(`UPDATE approvals SET status = ? WHERE id = ?`).run(
+      approval.status, approvalId
+    );
+  }
+
+  // Emit to renderer
+  mainWindow?.webContents.send('codex:approval-processed', { id: approvalId, approved });
 
   return true;
 }
@@ -310,14 +377,18 @@ ipcMain.handle('git:branch', (_event, repoPath: string) => {
   }
 });
 
+ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => {
+  // Get pending approvals, optionally filtered by session
+  const pending = approvalQueue.filter(a => a.status === 'pending' && (!sessionId || a.sessionId === sessionId));
+  return pending;
+});
+
 ipcMain.handle('approval:approve', (_event, approvalId: string) => {
-  console.log('Approval approved:', approvalId);
-  return true;
+  return processApproval(approvalId, true);
 });
 
 ipcMain.handle('approval:reject', (_event, approvalId: string) => {
-  console.log('Approval rejected:', approvalId);
-  return true;
+  return processApproval(approvalId, false);
 });
 
 // ─── App lifecycle ──────────────────────────────────────────────────────────
