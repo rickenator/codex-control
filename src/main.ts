@@ -2,14 +2,15 @@ import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
+import type { IPty } from 'node-pty';
 
-const pty: any = require('node-pty');
+const pty = require('node-pty') as typeof import('node-pty');
 
 type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
 
 interface SessionState {
   id: string;
-  pty: any;
+  pty: IPty;
   repository: string;
   branch: string;
   status: SessionStatus;
@@ -153,8 +154,9 @@ function initStore() {
     for (const approval of saved.approvals || []) {
       approvals.set(approval.id, approval);
     }
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') console.error('Could not read saved sessions:', error);
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'ENOENT') console.error('Could not read saved sessions:', error);
   }
   for (const record of records.values()) {
     if (record.status === 'running') record.status = 'stopped';
@@ -174,8 +176,9 @@ function initSettings() {
         apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
       },
     };
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') console.error('Could not read settings:', error);
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'ENOENT') console.error('Could not read settings:', error);
   }
   saveSettings();
 }
@@ -197,8 +200,9 @@ function loadWindowState() {
       },
       maximized: Boolean(saved.maximized),
     };
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') console.error('Could not read window state:', error);
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'ENOENT') console.error('Could not read window state:', error);
     return fallback;
   }
 }
@@ -336,9 +340,10 @@ function gitApplyHunk(repository: string, filePath: string, hunkId: number, reve
       input: patch,
     });
     return 'OK';
-  } catch (error: any) {
-    const stderr = error?.stderr?.toString?.().trim?.();
-    return stderr || error.message || 'Failed to apply hunk';
+  } catch (error: unknown) {
+    const candidate = error as { stderr?: { toString?: () => string }; message?: string };
+    const stderr = candidate?.stderr?.toString?.().trim?.();
+    return stderr || candidate.message || 'Failed to apply hunk';
   }
 }
 

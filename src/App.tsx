@@ -16,6 +16,11 @@ type AppSettings = {
   };
 };
 
+type Notice = {
+  kind: 'info' | 'success' | 'error';
+  message: string;
+};
+
 const defaultSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
   remoteLlamaCpp: {
@@ -30,16 +35,27 @@ export default function App() {
     const saved = window.localStorage.getItem('codex-control:active-tab');
     return saved === 'diff' || saved === 'approvals' ? saved : 'terminal';
   });
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(() => window.localStorage.getItem('codex-control:selected-session'));
   const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   useEffect(() => {
-    window.codexApi.listSessions().then(setSessions);
-    window.codexApi.getSettings().then((loaded: AppSettings) => setSettings(loaded)).catch(() => {});
+    window.codexApi.listSessions()
+      .then(setSessions)
+      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load sessions: ${error.message}` }));
+    window.codexApi.getSettings()
+      .then((loaded: AppSettings) => setSettings(loaded))
+      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load settings: ${error.message}` }));
   }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   useEffect(() => {
     const unsubscribeRecovery = window.codexApi.onSessionsRecovered((sessionIds: string[]) => {
@@ -48,7 +64,7 @@ export default function App() {
     });
 
     const unsubscribeApproval = window.codexApi.onApprovalRequest(() => {
-      window.codexApi.getPendingApprovals().then((approvals: any[]) => {
+      window.codexApi.getPendingApprovals().then((approvals: ApprovalRecord[]) => {
         setPendingApprovalCount(approvals.length);
       });
     });
@@ -118,41 +134,73 @@ export default function App() {
       const updated = await window.codexApi.listSessions();
       setSessions(updated);
       setSelectedSession(result.sessionId);
+      setNotice({ kind: 'success', message: `Started session for ${options.repository || 'the current workspace'}.` });
     } catch (e) {
-      console.error('Failed to start session:', e);
+      setNotice({ kind: 'error', message: `Could not start session: ${(e as Error).message}` });
     }
   };
 
   const handleReconnect = async (sessionId: string) => {
     try {
-      await window.codexApi.reconnectSession(sessionId);
+      const reconnected = await window.codexApi.reconnectSession(sessionId);
+      if (!reconnected) {
+        throw new Error('Session could not be reconnected');
+      }
       setSelectedSession(sessionId);
+      setNotice({ kind: 'success', message: 'Session reconnected.' });
     } catch (e) {
-      console.error('Failed to reconnect:', e);
+      setNotice({ kind: 'error', message: `Could not reconnect session: ${(e as Error).message}` });
     }
   };
 
   const handleApprove = async (id: string) => {
-    await window.codexApi.approveCommand(id);
-    // Refresh pending count
-    const approvals = await window.codexApi.getPendingApprovals();
-    setPendingApprovalCount(approvals.length);
+    try {
+      const approved = await window.codexApi.approveCommand(id);
+      if (!approved) {
+        throw new Error('Command could not be approved');
+      }
+      const approvals = await window.codexApi.getPendingApprovals();
+      setPendingApprovalCount(approvals.length);
+      setNotice({ kind: 'info', message: 'Approval granted.' });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not approve command: ${(e as Error).message}` });
+    }
   };
 
   const handleReject = async (id: string) => {
-    await window.codexApi.rejectCommand(id);
-    const approvals = await window.codexApi.getPendingApprovals();
-    setPendingApprovalCount(approvals.length);
+    try {
+      const rejected = await window.codexApi.rejectCommand(id);
+      if (!rejected) {
+        throw new Error('Command could not be rejected');
+      }
+      const approvals = await window.codexApi.getPendingApprovals();
+      setPendingApprovalCount(approvals.length);
+      setNotice({ kind: 'info', message: 'Approval rejected.' });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not reject command: ${(e as Error).message}` });
+    }
   };
 
   const handleSettingsChange = async (nextSettings: AppSettings) => {
-    setSettings(nextSettings);
-    const saved = await window.codexApi.updateSettings(nextSettings);
-    setSettings(saved);
+    try {
+      setSettings(nextSettings);
+      const saved = await window.codexApi.updateSettings(nextSettings);
+      setSettings(saved);
+      setNotice({ kind: 'success', message: 'Launch profile saved.' });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not save settings: ${(e as Error).message}` });
+    }
   };
 
   return (
     <div className="codex-app-shell">
+      {notice && (
+        <div className={`codex-banner ${notice.kind === 'error' ? 'codex-notice-error' : notice.kind === 'success' ? 'codex-notice-success' : 'codex-notice-info'}`}>
+          <span style={{ fontSize: 13 }}>{notice.message}</span>
+          <button className="codex-button codex-button-secondary" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
+
       {recoveredSessions.length > 0 && (
         <div className="codex-banner">
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
@@ -236,12 +284,13 @@ export default function App() {
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {activeTab === 'terminal' && <TerminalPane sessionId={selectedSession} compact />}
-              {activeTab === 'diff' && <DiffViewer sessionId={selectedSession} repository={activeSession?.repository} />}
+              {activeTab === 'diff' && <DiffViewer sessionId={selectedSession} repository={activeSession?.repository} onError={(message) => setNotice({ kind: 'error', message })} />}
               {activeTab === 'approvals' && (
                 <ApprovalQueue
                   sessionId={selectedSession}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onError={(message) => setNotice({ kind: 'error', message })}
                 />
               )}
             </div>

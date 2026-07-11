@@ -11,6 +11,7 @@ interface Event {
 interface Props {
   sessionId: string | null;
   compact?: boolean;
+  onError?: (message: string) => void;
 }
 
 const eventColors: Record<string, string> = {
@@ -33,7 +34,7 @@ const eventIcons: Record<string, string> = {
   output: '📝',
 };
 
-export default function EventTimeline({ sessionId, compact = false }: Props) {
+export default function EventTimeline({ sessionId, compact = false, onError }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -47,9 +48,13 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
     }
 
     // Load existing events
-    window.codexApi.getSessionEvents(sessionId).then((loadedEvents: Event[]) => {
-      setEvents(loadedEvents);
-    });
+    window.codexApi.getSessionEvents(sessionId)
+      .then((loadedEvents: Event[]) => {
+        setEvents(loadedEvents);
+      })
+      .catch((error: Error) => {
+        onError?.(`Could not load session events: ${error.message}`);
+      });
 
     // Subscribe to new events
     const unsubscribe = window.codexApi.onEvent((event: Event) => {
@@ -74,7 +79,7 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
       await window.codexApi.reconnectSession(sessionId);
       // Events will be re-emitted via the onEvent listener
     } catch (e) {
-      console.error('Failed to reconnect:', e);
+      onError?.(`Could not reconnect session: ${(e as Error).message}`);
     } finally {
       setIsReconnecting(false);
     }
@@ -88,7 +93,7 @@ export default function EventTimeline({ sessionId, compact = false }: Props) {
       await window.codexApi.sendInput(sessionId, input.trim() + '\n');
       setInput('');
     } catch (e) {
-      console.error('Failed to send input:', e);
+      onError?.(`Could not send input: ${(e as Error).message}`);
     } finally {
       setIsSending(false);
     }

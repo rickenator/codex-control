@@ -19,6 +19,7 @@ interface GitHunk {
 interface Props {
   sessionId: string | null;
   repository?: string;
+  onError?: (message: string) => void;
 }
 
 const statusIcons: Record<string, string> = {
@@ -39,7 +40,7 @@ const statusColors: Record<string, string> = {
   'U': '#f85149',
 };
 
-export default function DiffViewer({ sessionId, repository }: Props) {
+export default function DiffViewer({ sessionId, repository, onError }: Props) {
   const [statusEntries, setStatusEntries] = useState<GitStatusEntry[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [hunks, setHunks] = useState<GitHunk[]>([]);
@@ -66,7 +67,7 @@ export default function DiffViewer({ sessionId, repository }: Props) {
         setStatusEntries(entries);
       }
     } catch (e) {
-      console.error('Failed to load git status:', e);
+      onError?.(`Could not load git status: ${(e as Error).message}`);
     }
   };
 
@@ -84,7 +85,7 @@ export default function DiffViewer({ sessionId, repository }: Props) {
         setHunks([]);
       }
     } catch (e) {
-      console.error('Failed to load hunks:', e);
+      onError?.(`Could not load diff hunks: ${(e as Error).message}`);
       setHunks([]);
     } finally {
       setLoading(false);
@@ -109,7 +110,9 @@ export default function DiffViewer({ sessionId, repository }: Props) {
         setActionResult({ type: 'error', message: result || 'Failed to apply hunk' });
       }
     } catch (e) {
-      setActionResult({ type: 'error', message: (e as Error).message });
+      const message = (e as Error).message;
+      setActionResult({ type: 'error', message });
+      onError?.(`Could not apply hunk: ${message}`);
     }
   };
 
@@ -130,7 +133,9 @@ export default function DiffViewer({ sessionId, repository }: Props) {
         setActionResult({ type: 'error', message: result || 'Failed to reject hunk' });
       }
     } catch (e) {
-      setActionResult({ type: 'error', message: (e as Error).message });
+      const message = (e as Error).message;
+      setActionResult({ type: 'error', message });
+      onError?.(`Could not reject hunk: ${message}`);
     }
   };
 

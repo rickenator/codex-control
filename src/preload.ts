@@ -56,8 +56,8 @@ contextBridge.exposeInMainWorld('codexApi', {
   gitRejectHunk: (repoPath: string, filePath: string, hunkId: number) =>
     ipcRenderer.invoke('git:reject-hunk', repoPath, filePath, hunkId),
   // Events (streaming)
-  onEvent: (callback: (event: any) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+  onEvent: (callback: (event: CodexEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: CodexEvent) => callback(data);
     ipcRenderer.on('codex:event', handler);
     return () => ipcRenderer.removeListener('codex:event', handler);
   },
@@ -73,8 +73,8 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.on('codex:sessions-recovered', handler);
     return () => ipcRenderer.removeListener('codex:sessions-recovered', handler);
   },
-  onSessionsUpdated: (callback: (sessions: any[]) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, sessions: any[]) => callback(sessions);
+  onSessionsUpdated: (callback: (sessions: SessionRecord[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessions: SessionRecord[]) => callback(sessions);
     ipcRenderer.on('codex:sessions-updated', handler);
     return () => ipcRenderer.removeListener('codex:sessions-updated', handler);
   },
@@ -88,13 +88,13 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('approval:reject', approvalId),
 
   // Approval notifications
-  onApprovalRequest: (callback: (approval: any) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+  onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: ApprovalRecord) => callback(data);
     ipcRenderer.on('codex:approval-request', handler);
     return () => ipcRenderer.removeListener('codex:approval-request', handler);
   },
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+    const handler = (_event: Electron.IpcRendererEvent, data: { id: string; approved: boolean }) => callback(data);
     ipcRenderer.on('codex:approval-processed', handler);
     return () => ipcRenderer.removeListener('codex:approval-processed', handler);
   },

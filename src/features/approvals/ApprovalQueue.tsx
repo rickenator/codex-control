@@ -15,6 +15,7 @@ interface Props {
   sessionId: string | null;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onError?: (message: string) => void;
 }
 
 const sandboxColors: Record<string, string> = {
@@ -24,9 +25,8 @@ const sandboxColors: Record<string, string> = {
   'auto-approve': '#58a6ff',
 };
 
-export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props) {
+export default function ApprovalQueue({ sessionId, onApprove, onReject, onError }: Props) {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -36,8 +36,14 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
 
     let cancelled = false;
     const refresh = async () => {
-      const pending = await window.codexApi.getPendingApprovals(sessionId);
-      if (!cancelled) setApprovals(pending);
+      try {
+        const pending = await window.codexApi.getPendingApprovals(sessionId);
+        if (!cancelled) setApprovals(pending);
+      } catch (e) {
+        if (!cancelled) {
+          onError?.(`Could not refresh approvals: ${(e as Error).message}`);
+        }
+      }
     };
 
     refresh();
@@ -50,13 +56,21 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject }: Props)
   }, [sessionId]);
 
   const handleApprove = async (id: string) => {
-    await onApprove(id);
-    setApprovals(prev => prev.filter(a => a.id !== id));
+    try {
+      await onApprove(id);
+      setApprovals(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      onError?.(`Could not approve command: ${(e as Error).message}`);
+    }
   };
 
   const handleReject = async (id: string) => {
-    await onReject(id);
-    setApprovals(prev => prev.filter(a => a.id !== id));
+    try {
+      await onReject(id);
+      setApprovals(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      onError?.(`Could not reject command: ${(e as Error).message}`);
+    }
   };
 
   if (!sessionId) {
