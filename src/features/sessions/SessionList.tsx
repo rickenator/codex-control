@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface Session {
   id: string;
@@ -12,6 +12,7 @@ interface Props {
   sessions: Session[];
   selected: string | null;
   onSelect: (id: string) => void;
+  onStartSession: () => void;
 }
 
 const statusColor: Record<string, string> = {
@@ -21,18 +22,91 @@ const statusColor: Record<string, string> = {
   paused: '#8b949e',
   failed: '#f85149',
   completed: '#3fb950',
+  stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession }: Props) {
+  const [showNewSession, setShowNewSession] = useState(false);
+
   return (
     <aside style={{ width: 280, borderRight: '1px solid #21262d', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #21262d' }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#f0f6fc' }}>Sessions</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#f0f6fc' }}>Sessions</h3>
+          <button
+            onClick={() => setShowNewSession(!showNewSession)}
+            style={{
+              padding: '4px 8px',
+              background: '#21262d',
+              border: '1px solid #30363d',
+              borderRadius: 4,
+              color: '#58a6ff',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            + New
+          </button>
+        </div>
+
+        {showNewSession && (
+          <div style={{ marginTop: 8, padding: 8, background: '#0d1117', borderRadius: 6 }}>
+            <input
+              type="text"
+              placeholder="Repository path"
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                marginBottom: 4,
+                background: '#161b22',
+                border: '1px solid #30363d',
+                borderRadius: 4,
+                color: '#c9d1d9',
+                fontSize: 12,
+                outline: 'none',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Branch (optional)"
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                marginBottom: 8,
+                background: '#161b22',
+                border: '1px solid #30363d',
+                borderRadius: 4,
+                color: '#c9d1d9',
+                fontSize: 12,
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={() => {
+                onStartSession();
+                setShowNewSession(false);
+              }}
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                background: '#238636',
+                border: 'none',
+                borderRadius: 4,
+                color: '#fff',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Start Session
+            </button>
+          </div>
+        )}
       </div>
+
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
-        {sessions.length === 0 && (
+        {sessions.length === 0 && !showNewSession && (
           <div style={{ padding: '20px 16px', color: '#484f58', fontSize: 13 }}>
-            No sessions yet. Start one from the CLI or connect to an existing session.
+            No sessions yet. Click "+ New" to start a Codex session.
           </div>
         )}
         {sessions.map(s => (
@@ -40,7 +114,8 @@ export default function SessionList({ sessions, selected, onSelect }: Props) {
             key={s.id}
             onClick={() => onSelect(s.id)}
             style={{
-              padding: '8px 16px', cursor: 'pointer',
+              padding: '8px 16px',
+              cursor: 'pointer',
               background: selected === s.id ? '#161b22' : 'transparent',
               borderLeft: `3px solid ${statusColor[s.status] || '#8b949e'}`,
             }}

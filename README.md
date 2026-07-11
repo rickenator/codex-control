@@ -20,17 +20,17 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 
 ## Milestones
 
-| Milestone | Description |
-|-----------|-------------|
-| M0 | Repository scaffold, Electron shell, C++ native addon stubs, React layout |
-| M1 | Codex process/app-server connection and event capture |
-| M2 | Prompt/response timeline and reconnect |
-| M3 | Approval UI with exact command details |
-| M4 | Git status and unified diff |
-| M5 | Session browser and persistence |
-| M6 | Local llama.cpp provider validation |
-| M7 | Packaging for Ubuntu (AppImage + .deb) |
-| M8 | Dogfood on a non-ATT-1 project |
+| Milestone | Description | Status |
+|-----------|-------------|--------|
+| M0 | Repository scaffold, Electron shell, C++ native addon stubs, React layout | ✅ Done |
+| M1 | Codex process/app-server connection and event capture | ✅ Done |
+| M2 | Prompt/response timeline and reconnect | 🔄 In progress |
+| M3 | Approval UI with exact command details | ⏳ Pending |
+| M4 | Git status and unified diff | ⏳ Pending |
+| M5 | Session browser and persistence | ⏳ Pending |
+| M6 | Local llama.cpp provider validation | ⏳ Pending |
+| M7 | Packaging for Ubuntu (AppImage + .deb) | ⏳ Pending |
+| M8 | Dogfood on a non-ATT-1 project | ⏳ Pending |
 
 ## Key design rule
 

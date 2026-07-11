@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('session:stop', sessionId),
   listSessions: () =>
     ipcRenderer.invoke('session:list'),
+  getSessionEvents: (sessionId: string) =>
+    ipcRenderer.invoke('session:events', sessionId),
+  sendInput: (sessionId: string, input: string) =>
+    ipcRenderer.invoke('session:send-input', { sessionId, input }),
 
   // Git
   gitStatus: (repoPath: string) =>

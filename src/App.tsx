@@ -12,8 +12,21 @@ export default function App() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
 
   useEffect(() => {
+    // Load sessions on mount
     window.codexApi.listSessions().then(setSessions);
   }, []);
+
+  const handleStartSession = async () => {
+    try {
+      const result = await window.codexApi.startSession({});
+      // Refresh session list
+      const updated = await window.codexApi.listSessions();
+      setSessions(updated);
+      setSelectedSession(result.sessionId);
+    } catch (e) {
+      console.error('Failed to start session:', e);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', background: '#0d1117', color: '#c9d1d9' }}>
@@ -22,6 +35,7 @@ export default function App() {
         sessions={sessions}
         selected={selectedSession}
         onSelect={setSelectedSession}
+        onStartSession={handleStartSession}
       />
 
       {/* Center: Event timeline */}
