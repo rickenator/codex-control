@@ -1,9 +1,40 @@
+type CodexProvider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+
+interface LanProviderConfig {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  model: string;
+  apiKey: string;
+}
+
+interface CodexSettings {
+  defaultProvider: CodexProvider;
+  remoteLlamaCpp: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
+  lanProviders: LanProviderConfig[];
+}
+
+interface CodexSettingsInput {
+  defaultProvider?: CodexProvider;
+  remoteLlamaCpp?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
+  lanProviders?: LanProviderConfig[];
+}
+
 interface CodexAPI {
   // Sessions
   startSession: (opts: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    provider?: CodexProvider;
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
@@ -17,29 +48,8 @@ interface CodexAPI {
   sendInput: (sessionId: string, input: string) => Promise<boolean>;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   reconnectSession: (sessionId: string) => Promise<boolean>;
-  getSettings: () => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
-    remoteLlamaCpp: {
-      baseUrl: string;
-      model: string;
-      apiKey: string;
-    };
-  }>;
-  updateSettings: (settings: {
-    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56';
-    remoteLlamaCpp?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-  }) => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
-    remoteLlamaCpp: {
-      baseUrl: string;
-      model: string;
-      apiKey: string;
-    };
-  }>;
+  getSettings: () => Promise<CodexSettings>;
+  updateSettings: (settings: CodexSettingsInput) => Promise<CodexSettings>;
 
   // Git
   gitStatus: (repoPath: string) => Promise<GitStatusEntry[]>;
@@ -74,7 +84,7 @@ interface SessionRecord {
   id: string;
   repository: string;
   branch: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  provider?: CodexProvider;
   model?: string;
   baseUrl?: string;
   status: 'running' | 'stopped' | 'failed' | 'completed';

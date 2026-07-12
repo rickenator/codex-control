@@ -74,8 +74,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings: rawSettings, onSettingsChange }: Props) {
-  const settings = rawSettings as typeof rawSettings & { lanProviders: LanProviderConfig[] };
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -178,7 +177,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       defaultProvider: provider,
       remoteLlamaCpp: { baseUrl, model, apiKey },
       lanProviders: settings.lanProviders || [],
-    } as any);
+    });
     setRepository('');
     setBranch('');
     setShowNewSession(false);
@@ -294,7 +293,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 defaultProvider: provider,
                 remoteLlamaCpp: { baseUrl, model, apiKey },
                 lanProviders: settings.lanProviders || [],
-              } as any)}
+              })}
             >
               Save as default
             </button>
