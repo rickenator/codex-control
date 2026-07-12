@@ -7,13 +7,23 @@ import ApprovalQueue from './features/approvals/ApprovalQueue';
 
 type Tab = 'terminal' | 'diff' | 'approvals';
 
+type LanProviderConfig = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  model: string;
+  apiKey: string;
+};
+
 type AppSettings = {
-  defaultProvider: 'default' | 'remote_llamacpp';
+  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
     apiKey: string;
   };
+  lanProviders: LanProviderConfig[];
 };
 
 type Notice = {
@@ -28,6 +38,7 @@ const defaultSettings: AppSettings = {
     model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
     apiKey: 'llama.cpp',
   },
+  lanProviders: [],
 };
 
 export default function App() {
@@ -41,13 +52,17 @@ export default function App() {
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [showLanSettings, setShowLanSettings] = useState(false);
+  const [lanForm, setLanForm] = useState<{ id: string; name: string; host: string; port: string; model: string; apiKey: string }>({
+    id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
+  });
 
   useEffect(() => {
     window.codexApi.listSessions()
       .then(setSessions)
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load sessions: ${error.message}` }));
     window.codexApi.getSettings()
-      .then((loaded: AppSettings) => setSettings(loaded))
+      .then((loaded: any) => setSettings(loaded))
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load settings: ${error.message}` }));
   }, []);
 
@@ -122,8 +137,9 @@ export default function App() {
   const handleStartSession = async (options: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp';
-    remoteLlamaCpp?: {
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    selectedLanProviderId?: string;
+    lanProvider?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
@@ -220,8 +236,8 @@ export default function App() {
   const handleSettingsChange = async (nextSettings: AppSettings) => {
     try {
       setSettings(nextSettings);
-      const saved = await window.codexApi.updateSettings(nextSettings);
-      setSettings(saved);
+      const saved = await window.codexApi.updateSettings(nextSettings as any);
+      setSettings(saved as any);
       setNotice({ kind: 'success', message: 'Launch profile saved.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not save settings: ${(e as Error).message}` });
@@ -308,15 +324,15 @@ export default function App() {
           sessions={sessions}
           selected={selectedSession}
           onSelect={setSelectedSession}
-          onStartSession={handleStartSession}
+          onStartSession={(opts: any) => handleStartSession(opts)}
           onReconnect={handleReconnect}
           onPickRepository={handlePickRepository}
           onCopyPath={handleCopyText}
           onOpenPath={handleOpenPath}
           onTestRemote={handleTestRemoteLlamaCpp}
           onRequestNewSession={handleRequestNewSession}
-          settings={settings}
-          onSettingsChange={handleSettingsChange}
+          settings={{ ...settings, lanProviders: settings.lanProviders || [] }}
+          onSettingsChange={(s: any) => handleSettingsChange(s)}
         />
 
         <div className="codex-main-grid">
@@ -425,6 +441,7 @@ export default function App() {
                 sessionId={selectedSession}
                 compact
                 onCopySessionId={(value) => handleCopyText(value, 'Event ID')}
+                onRequestNewSession={handleRequestNewSession}
               />
             </div>
           </section>
@@ -446,7 +463,7 @@ export default function App() {
           <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
-          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : 'Default Codex profile active'}</span>
+          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6 profile active' : settings.defaultProvider === 'lan' ? 'LAN provider active' : 'Default Codex profile active'}</span>
           <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search · 1/2/3 tabs</span>
         </div>
       </footer>

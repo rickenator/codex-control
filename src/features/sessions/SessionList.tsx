@@ -6,12 +6,17 @@ interface Session {
   branch?: string;
   status: string;
   updated_at: number;
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  model?: string;
+  baseUrl?: string;
 }
 
 type NewSessionOptions = {
   repository?: string;
   branch?: string;
-  provider?: 'default' | 'remote_llamacpp';
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  model?: string;
+  baseUrl?: string;
   remoteLlamaCpp?: {
     baseUrl?: string;
     model?: string;
@@ -19,6 +24,7 @@ type NewSessionOptions = {
   };
 };
 
+type LanProviderConfig = {  id: string;  name: string;  host: string;  port: number;  model: string;  apiKey: string;};
 interface Props {
   sessions: Session[];
   selected: string | null;
@@ -31,20 +37,22 @@ interface Props {
   onTestRemote: (config: { baseUrl: string; model: string; apiKey: string }) => Promise<boolean>;
   onRequestNewSession: () => Promise<void>;
   settings: {
-    defaultProvider: 'default' | 'remote_llamacpp';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
       apiKey: string;
     };
+    lanProviders: LanProviderConfig[];
   };
   onSettingsChange: (settings: {
-    defaultProvider: 'default' | 'remote_llamacpp';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
       apiKey: string;
     };
+    lanProviders: LanProviderConfig[];
   }) => void;
 }
 
@@ -58,16 +66,45 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings: rawSettings, onSettingsChange }: Props) {
+  const settings = rawSettings as typeof rawSettings & { lanProviders: LanProviderConfig[] };
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
-  const [provider, setProvider] = useState<'default' | 'remote_llamacpp'>(settings.defaultProvider);
+  const [provider, setProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan'>(settings.defaultProvider);
   const [baseUrl, setBaseUrl] = useState(settings.remoteLlamaCpp.baseUrl);
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [isDroppingWorkspace, setIsDroppingWorkspace] = useState(false);
+  useEffect(() => {
+    if (provider !== 'remote_llamacpp' && provider !== 'lan') {
+      setAvailableModels([]);
+      return;
+    }
+    if (!baseUrl.trim()) {
+      setAvailableModels([]);
+      return;
+    }
+    let cancelled = false;
+    setModelsLoading(true);
+    window.codexApi.fetchModels({ baseUrl: baseUrl.trim(), apiKey: apiKey || undefined })
+      .then((models: Array<{ id: string; name?: string }>) => {
+        if (!cancelled) {
+          setAvailableModels(models);
+          // Auto-select first model if none selected yet
+          if (models.length > 0 && !model.trim()) {
+            setModel(models[0].id);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setModelsLoading(false); });
+    return () => { cancelled = true; };
+  }, [baseUrl, apiKey, provider]);
+
   const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -120,7 +157,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     onSettingsChange({
       defaultProvider: provider,
       remoteLlamaCpp: { baseUrl, model, apiKey },
-    });
+      lanProviders: settings.lanProviders || [],
+    } as any);
     setRepository('');
     setBranch('');
     setShowNewSession(false);
@@ -214,12 +252,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
               <span style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600 }}>Launch profile</span>
               <span style={{ fontSize: 11, color: '#8b949e' }}>
-                Saved default: {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'}
+                Saved default: {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN Provider' : 'Default Codex'}
               </span>
             </div>
             <div className="codex-chip" style={{ padding: '4px 8px' }}>
               <span className="codex-chip-label">Mode</span>
-              <span className="codex-chip-value">{provider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'}</span>
+              <span className="codex-chip-value">{provider === 'remote_llamacpp' ? 'Remote llama.cpp' : provider === 'gpt56' ? 'GPT-5.6' : provider === 'lan' ? 'LAN Provider' : 'Default Codex'}</span>
             </div>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
@@ -229,7 +267,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               onClick={() => onSettingsChange({
                 defaultProvider: provider,
                 remoteLlamaCpp: { baseUrl, model, apiKey },
-              })}
+                lanProviders: settings.lanProviders || [],
+              } as any)}
             >
               Save as default
             </button>
@@ -314,12 +353,14 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#8b949e' }}>Provider</label>
             <select
               value={provider}
-              onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp')}
+              onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp' | 'gpt56' | 'lan')}
               className="codex-select"
               style={{ marginBottom: 8 }}
             >
               <option value="remote_llamacpp">Remote llama.cpp</option>
               <option value="default">Default Codex</option>
+              <option value="gpt56">GPT-5.6</option>
+              <option value="lan">LAN Provider</option>
             </select>
             {provider === 'remote_llamacpp' && (
               <>
@@ -331,14 +372,29 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                   className="codex-input"
                   style={{ marginBottom: 4 }}
                 />
-                <input
-                  type="text"
-                  placeholder="Model name"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  className="codex-input"
-                  style={{ marginBottom: 4 }}
-                />
+                {modelsLoading ? (
+                  <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>Fetching models...</div>
+                ) : availableModels.length > 0 ? (
+                  <select
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    className="codex-select"
+                    style={{ marginBottom: 4 }}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Model name (or fetch from /v1/models)"
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    className="codex-input"
+                    style={{ marginBottom: 4 }}
+                  />
+                )}
                 <input
                   type="password"
                   placeholder="API key (optional)"
@@ -407,6 +463,25 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             </div>
           </div>
         )}
+        {provider === 'lan' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
+            <select
+              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
+              onChange={(e) => {
+                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
+              }}
+              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
+            >
+              {settings.lanProviders.map((p: LanProviderConfig) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>
+              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
+            </span>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: '0 14px 10px' }}>
@@ -426,6 +501,25 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             No sessions match “{search.trim()}”.
           </div>
         )}
+        {provider === 'lan' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
+            <select
+              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
+              onChange={(e) => {
+                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
+              }}
+              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
+            >
+              {settings.lanProviders.map((p: LanProviderConfig) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>
+              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
+            </span>
+          </div>
+        )}
         {sessions.length === 0 && !showNewSession && (
           <div className="codex-empty-state" style={{ paddingTop: 20, paddingBottom: 20 }}>
             No sessions yet. Click "+ New" to start a session.
@@ -437,6 +531,25 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 Open new session drawer
               </button>
             </div>
+          </div>
+        )}
+        {provider === 'lan' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
+            <select
+              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
+              onChange={(e) => {
+                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
+              }}
+              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
+            >
+              {settings.lanProviders.map((p: LanProviderConfig) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: '#8b949e' }}>
+              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
+            </span>
           </div>
         )}
         {(search.trim() ? filteredSessions : sessions).map(s => {
@@ -525,7 +638,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               {s.provider && (
                 <>
                   <span>·</span>
-                  <span>{s.provider === 'remote_llamacpp' ? 'llama.cpp' : 'default'}</span>
+                  <span>{s.provider === 'remote_llamacpp' ? 'llama.cpp' : s.provider === 'gpt56' ? 'GPT-5.6' : s.provider === 'lan' ? 'LAN' : 'default'}</span>
                 </>
               )}
               <span>·</span>

@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('codexApi', {
   startSession: (opts: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp';
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
@@ -30,12 +30,20 @@ contextBridge.exposeInMainWorld('codexApi', {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
   updateSettings: (settings: {
-    defaultProvider?: 'default' | 'remote_llamacpp';
+    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
     };
+    lanProviders?: Array<{
+      id: string;
+      name: string;
+      host: string;
+      port: number;
+      model: string;
+      apiKey: string;
+    }>;
   }) =>
     ipcRenderer.invoke('settings:update', settings),
 
@@ -103,10 +111,20 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.on('ui:new-session', handler);
     return () => ipcRenderer.removeListener('ui:new-session', handler);
   },
+  lanAddProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) =>
+    ipcRenderer.invoke('lan:add-provider', provider),
+  lanRemoveProvider: (id: string) =>
+    ipcRenderer.invoke('lan:remove-provider', id),
+  lanUpdateProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) =>
+    ipcRenderer.invoke('lan:update-provider', provider),
+
   copyText: (text: string) =>
     ipcRenderer.invoke('ui:copy-text', text),
   requestNewSession: () =>
     ipcRenderer.invoke('ui:new-session-request'),
+  fetchModels: (config: { baseUrl: string; apiKey?: string }) =>
+    ipcRenderer.invoke('models:fetch', config),
+
   testRemoteLlamaCpp: (config: { baseUrl: string; apiKey: string; model?: string }) =>
     ipcRenderer.invoke('ui:test-remote-llamacpp', config),
   pickFolder: () =>

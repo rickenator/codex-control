@@ -17,12 +17,23 @@ interface SessionState {
   terminalBuffer: string;
 }
 
+
+interface LanProvider {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  model: string;
+  apiKey: string;
+}
+
 interface SessionOptions {
   repository?: string;
   branch?: string;
   codexPath?: string;
-  provider?: 'default' | 'remote_llamacpp';
-  remoteLlamaCpp?: {
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  selectedLanProviderId?: string;
+  lanProvider?: {
     baseUrl?: string;
     model?: string;
     apiKey?: string;
@@ -33,7 +44,7 @@ interface SessionRecord {
   id: string;
   repository: string;
   branch: string;
-  provider?: 'default' | 'remote_llamacpp';
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
   model?: string;
   baseUrl?: string;
   status: SessionStatus;
@@ -42,12 +53,13 @@ interface SessionRecord {
 }
 
 interface AppSettings {
-  defaultProvider: 'default' | 'remote_llamacpp';
+  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
     apiKey: string;
   };
+  lanProviders: LanProvider[];
 }
 
 interface ApprovalRequest {
@@ -80,6 +92,7 @@ let appSettings: AppSettings = {
     model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
     apiKey: 'llama.cpp',
   },
+  lanProviders: [],
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
@@ -201,6 +214,7 @@ function initSettings() {
           model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
           apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
         },
+        lanProviders: Array.isArray(saved.lanProviders) ? saved.lanProviders : [],
       };
     }
   } catch (error: unknown) {
@@ -327,6 +341,30 @@ function normalizeBaseUrl(baseUrl: string) {
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 }
 
+async function fetchModels(baseUrl: string, apiKey?: string): Promise<{ id: string; name?: string }[]> {
+  try {
+    const normalized = normalizeBaseUrl(baseUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const response = await fetch(`${normalized}/models`, { method: 'GET', signal: controller.signal, headers });
+    clearTimeout(timeout);
+    if (!response.ok) return [];
+    const data = await response.json().catch(() => null);
+    if (!data || !Array.isArray(data.data)) return [];
+    return data.data.map((m: { id?: string; name?: string }) => ({ id: m.id || '', name: m.name || m.id })).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function getLanProvider(id?: string): LanProvider | null {
+  if (!id || appSettings.lanProviders.length === 0) return null;
+  const found = appSettings.lanProviders.find(p => p.id === id);
+  return found ?? appSettings.lanProviders[0] ?? null;
+}
+
 async function testRemoteLlamaCpp(baseUrl: string, apiKey: string, model?: string) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const controller = new AbortController();
@@ -432,7 +470,7 @@ function launchSession(
   sessionId: string,
   repository: string,
   branch: string,
-  provider: 'default' | 'remote_llamacpp',
+  provider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan',
   options: SessionOptions,
   isReconnect: boolean,
 ) {
@@ -440,9 +478,9 @@ function launchSession(
   const args = ['--no-alt-screen', '-C', repository];
   const env = { ...process.env };
   const resolvedRemote = {
-    baseUrl: options.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
-    model: options.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
-    apiKey: options.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+    baseUrl: options.lanProvider?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
+    model: options.lanProvider?.model?.trim() || appSettings.remoteLlamaCpp.model,
+    apiKey: options.lanProvider?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
   };
 
   if (provider === 'remote_llamacpp') {
@@ -470,6 +508,38 @@ function launchSession(
       '-c', 'model_providers.remote_llamacpp.wire_api="responses"',
       '-c', 'model_providers.remote_llamacpp.env_key="OPENAI_API_KEY"',
     );
+  }
+  if (provider === 'gpt56') {
+    args.push('-m', 'gpt-5.6');
+  }
+  if (provider === 'lan') {
+    const lanProvider = getLanProvider(options.selectedLanProviderId);
+    if (!lanProvider) throw new Error('No LAN provider configured');
+
+    const normalizedBaseUrl = normalizeBaseUrl(`${lanProvider.host}:${lanProvider.port}`);
+    const apiKey = lanProvider.apiKey || 'llama.cpp';
+
+    env.OPENAI_BASE_URL = normalizedBaseUrl;
+    env.OPENAI_API_BASE = normalizedBaseUrl;
+    env.OPENAI_API_KEY = apiKey;
+    env.OPENAI_MODEL = lanProvider.model;
+    env.CODEX_OSS_BASE_URL = normalizedBaseUrl;
+
+    args.push(
+      '-c', `model=${quoteTomlString(lanProvider.model)}`,
+      '-c', 'model_provider="lan"',
+      '-c', 'model_providers.lan.name=lan',
+      '-c', `model_providers.lan.base_url=${quoteTomlString(normalizedBaseUrl)}`,
+      '-c', 'model_providers.lan.wire_api="responses"',
+      '-c', 'model_providers.lan.env_key="OPENAI_API_KEY"',
+    );
+
+    records.set(sessionId, {
+      id: sessionId, repository, branch, provider,
+      model: lanProvider.model,
+      baseUrl: normalizedBaseUrl,
+      status: 'running', created_at: Date.now(), updated_at: Date.now(),
+    });
   }
 
   const terminal = pty.spawn(codexPath, args, {
@@ -546,7 +616,7 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
     repository: record.repository,
     branch,
     provider: record.provider,
-    remoteLlamaCpp: record.provider === 'remote_llamacpp'
+    lanProvider: record.provider === 'remote_llamacpp'
       ? {
           baseUrl: record.baseUrl,
           model: record.model,
@@ -583,10 +653,40 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
       model: nextSettings.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
       apiKey: nextSettings.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
     },
+    lanProviders: nextSettings.lanProviders ?? appSettings.lanProviders,
   };
   saveSettings();
   return appSettings;
 });
+
+ipcMain.handle('models:fetch', (_event, config: { baseUrl: string; apiKey?: string }) =>
+  fetchModels(config.baseUrl, config.apiKey)
+);
+
+ipcMain.handle('lan:add-provider', (_event, provider: LanProvider) => {
+  appSettings.lanProviders.push(provider);
+  saveSettings();
+  return appSettings;
+});
+
+ipcMain.handle('lan:remove-provider', (_event, id: string) => {
+  appSettings.lanProviders = appSettings.lanProviders.filter(p => p.id !== id);
+  if (appSettings.defaultProvider === 'lan') {
+    appSettings.defaultProvider = 'remote_llamacpp';
+  }
+  saveSettings();
+  return appSettings;
+});
+
+ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
+  const idx = appSettings.lanProviders.findIndex(p => p.id === updated.id);
+  if (idx >= 0) {
+    appSettings.lanProviders[idx] = updated;
+    saveSettings();
+  }
+  return appSettings;
+});
+
 ipcMain.handle('ui:copy-text', (_event, text: string) => {
   try {
     clipboard.writeText(text);
@@ -660,11 +760,11 @@ function buildApplicationMenu() {
       label: 'View',
       submenu: [
         { role: 'reload', label: 'Reload' },
-        { role: 'toggledevtools', label: 'Toggle Developer Tools' },
+        { role: 'toggleDevTools', label: 'Toggle Developer Tools' },
         { type: 'separator' },
-        { role: 'resetzoom', label: 'Reset Zoom' },
-        { role: 'zoomin', label: 'Zoom In' },
-        { role: 'zoomout', label: 'Zoom Out' },
+        { role: 'resetZoom', label: 'Reset Zoom' },
+        { role: 'zoomIn', label: 'Zoom In' },
+        { role: 'zoomOut', label: 'Zoom Out' },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Toggle Full Screen' },
       ],

@@ -2,7 +2,7 @@
   "name": "consiglio",
   "version": "0.1.0",
   "description": "A Linux desktop control plane for Codex CLI.",
-  "author": "Rick",
+  "author": "Rick <rick@apex>",
   "private": true,
   "main": "dist/main.js",
   "scripts": {

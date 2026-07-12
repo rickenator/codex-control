@@ -3,7 +3,7 @@ interface CodexAPI {
   startSession: (opts: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp';
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
@@ -18,7 +18,7 @@ interface CodexAPI {
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   reconnectSession: (sessionId: string) => Promise<boolean>;
   getSettings: () => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
@@ -26,14 +26,14 @@ interface CodexAPI {
     };
   }>;
   updateSettings: (settings: {
-    defaultProvider?: 'default' | 'remote_llamacpp';
+    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
     };
   }) => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
@@ -64,6 +64,7 @@ interface CodexAPI {
   onNewSession: (callback: () => void) => () => void;
   copyText: (text: string) => Promise<boolean>;
   requestNewSession: () => Promise<boolean>;
+  fetchModels: (config: { baseUrl: string; apiKey?: string }) => Promise<Array<{ id: string; name?: string }>>;
   testRemoteLlamaCpp: (config: { baseUrl: string; apiKey: string; model?: string }) => Promise<{ ok: boolean; message: string; models?: string[] }>;
   pickFolder: () => Promise<string | null>;
   openPath: (targetPath: string) => Promise<boolean>;
@@ -73,7 +74,7 @@ interface SessionRecord {
   id: string;
   repository: string;
   branch: string;
-  provider?: 'default' | 'remote_llamacpp';
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
   model?: string;
   baseUrl?: string;
   status: 'running' | 'stopped' | 'failed' | 'completed';
