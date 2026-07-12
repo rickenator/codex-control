@@ -137,4 +137,12 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('ui:pick-folder'),
   openPath: (targetPath: string) =>
     ipcRenderer.invoke('ui:open-path', targetPath),
+
+  // Startup health and updates
+  getStartupStatus: () =>
+    ipcRenderer.invoke('system:startup-checks'),
+  checkForUpdates: () =>
+    ipcRenderer.invoke('system:check-updates'),
+  checkProviders: () =>
+    ipcRenderer.invoke('system:check-providers'),
 });
