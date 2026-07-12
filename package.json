@@ -1,7 +1,7 @@
 {
   "name": "consiglio",
   "version": "0.1.0",
-  "description": "A Linux desktop control plane for Codex CLI.",
+  "description": "A cross-platform desktop control plane for Codex-compatible agents.",
   "author": "Rick <rick@apex>",
   "private": true,
   "main": "dist/main.js",
@@ -15,7 +15,10 @@
     "build:preload": "vite build --config vite.preload.config.ts",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "package": "electron-builder",
-    "package:linux": "electron-builder --linux"
+    "package:linux": "electron-builder --linux",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win",
+    "package:all": "electron-builder --mac --win --linux"
   },
   "dependencies": {
     "node-addon-api": "^8.0.0",
@@ -50,11 +53,14 @@
     "electronDist": "node_modules/electron/dist",
     "npmRebuild": false,
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development",
       "icon": "build/icons/icon.png",
       "synopsis": "Desktop control plane for Codex CLI",
-      "description": "A native Linux desktop control plane for Codex CLI with session tracking, review tooling, and remote llama.cpp support."
+      "description": "A native desktop control plane for Codex-compatible agents with session tracking, review tooling, provider health checks, and remote llama.cpp support."
     },
     "files": [
       "dist/**/*",
@@ -65,6 +71,26 @@
         "from": "build/icons",
         "to": "icons"
       }
-    ]
+    ],
+    "publish": [
+      {
+        "provider": "github"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icons/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icons/icon.png"
+    }
   }
 }

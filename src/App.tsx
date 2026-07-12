@@ -52,6 +52,8 @@ export default function App() {
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [showLanSettings, setShowLanSettings] = useState(false);
   const [lanForm, setLanForm] = useState<{ id: string; name: string; host: string; port: string; model: string; apiKey: string }>({
     id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
@@ -64,6 +66,9 @@ export default function App() {
     window.codexApi.getSettings()
       .then(setSettings)
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load settings: ${error.message}` }));
+    window.codexApi.getStartupStatus()
+      .then(setStartupStatus)
+      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not run startup checks: ${error.message}` }));
   }, []);
 
   useEffect(() => {
@@ -276,6 +281,22 @@ export default function App() {
     }
   };
 
+  const handleRefreshStartupStatus = async () => {
+    if (isRefreshingStatus) return;
+    setIsRefreshingStatus(true);
+    try {
+      const refreshed = await window.codexApi.getStartupStatus();
+      setStartupStatus(refreshed);
+      setNotice({ kind: refreshed.appUpdate.updateAvailable ? 'success' : 'info', message: refreshed.appUpdate.message });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not refresh health checks: ${(e as Error).message}` });
+    } finally {
+      setIsRefreshingStatus(false);
+    }
+  };
+
+  const healthSummary = summarizeHealth(startupStatus);
+
   return (
     <div className="codex-app-shell">
       {notice && (
@@ -298,6 +319,39 @@ export default function App() {
           </button>
         </div>
       )}
+
+      <section className="codex-banner" style={{ alignItems: 'stretch', background: 'rgba(255,255,255,0.035)', borderColor: healthSummary.borderColor }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ color: '#f0f6fc', fontWeight: 700, fontSize: 13 }}>Startup health and updates</span>
+              <span style={{ color: healthSummary.color, fontSize: 12 }}>{healthSummary.message}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {startupStatus?.appUpdate.releaseUrl && startupStatus.appUpdate.updateAvailable && (
+                <button className="codex-button codex-button-info" onClick={() => void handleOpenPath(startupStatus.appUpdate.releaseUrl!, 'Release page')}>
+                  Open release
+                </button>
+              )}
+              <button className="codex-button codex-button-secondary" onClick={() => void handleRefreshStartupStatus()} disabled={isRefreshingStatus}>
+                {isRefreshingStatus ? 'Checking…' : 'Re-check'}
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {startupStatus ? (
+              <>
+                <HealthPill label="Consiglio" status={startupStatus.appUpdate.updateAvailable ? 'warning' : startupStatus.appUpdate.status} message={startupStatus.appUpdate.latestVersion ? `${startupStatus.appUpdate.currentVersion} → ${startupStatus.appUpdate.latestVersion}` : startupStatus.appUpdate.currentVersion} />
+                {startupStatus.checks.map(check => (
+                  <HealthPill key={check.id} label={check.label} status={check.status} message={check.message} />
+                ))}
+              </>
+            ) : (
+              <HealthPill label="Checks" status="checking" message="Checking app releases, Codex CLI, and provider interfaces…" />
+            )}
+          </div>
+        </div>
+      </section>
 
       <header className="codex-page-header">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -485,4 +539,25 @@ function sessionLabel(repository?: string) {
   if (!trimmed) return 'Untitled workspace';
   const segments = trimmed.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] || trimmed;
+}
+
+
+function summarizeHealth(status: StartupStatus | null) {
+  if (!status) return { message: 'Checking Consiglio releases, Codex CLI, and provider interfaces…', color: '#58a6ff', borderColor: 'rgba(88, 166, 255, 0.28)' };
+  if (status.appUpdate.updateAvailable) return { message: status.appUpdate.message, color: '#d29922', borderColor: 'rgba(210, 153, 34, 0.36)' };
+  const hasError = status.checks.some(check => check.status === 'error');
+  if (hasError) return { message: 'Some startup checks need attention before sessions will be reliable.', color: '#f85149', borderColor: 'rgba(248, 81, 73, 0.36)' };
+  const hasWarning = status.checks.some(check => check.status === 'warning') || status.appUpdate.status === 'warning';
+  if (hasWarning) return { message: 'Consiglio started, but one or more provider/update checks could not be verified.', color: '#d29922', borderColor: 'rgba(210, 153, 34, 0.36)' };
+  return { message: 'Consiglio, Codex CLI, and configured provider interfaces look ready.', color: '#3fb950', borderColor: 'rgba(63, 185, 80, 0.36)' };
+}
+
+function HealthPill({ label, status, message }: { label: string; status: HealthCheckItem['status'] | UpdateStatus['status']; message: string }) {
+  const color = status === 'ok' ? '#3fb950' : status === 'error' ? '#f85149' : status === 'warning' ? '#d29922' : '#58a6ff';
+  return (
+    <div className="codex-chip" title={message} style={{ maxWidth: 360, borderColor: `${color}66` }}>
+      <span className="codex-chip-label" style={{ color }}>{label}</span>
+      <span className="codex-chip-value" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message}</span>
+    </div>
+  );
 }

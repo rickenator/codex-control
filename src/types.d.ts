@@ -29,6 +29,31 @@ interface CodexSettingsInput {
   lanProviders?: LanProviderConfig[];
 }
 
+
+interface HealthCheckItem {
+  id: string;
+  label: string;
+  status: 'checking' | 'ok' | 'warning' | 'error';
+  message: string;
+  detail?: string;
+  checkedAt: number;
+}
+
+interface UpdateStatus {
+  currentVersion: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  releaseUrl?: string;
+  status: 'ok' | 'warning' | 'error';
+  message: string;
+  checkedAt: number;
+}
+
+interface StartupStatus {
+  appUpdate: UpdateStatus;
+  checks: HealthCheckItem[];
+}
+
 interface CodexAPI {
   // Sessions
   startSession: (opts: {
@@ -84,6 +109,9 @@ interface CodexAPI {
   testRemoteLlamaCpp: (config: { baseUrl: string; apiKey: string; model?: string }) => Promise<{ ok: boolean; message: string; models?: string[] }>;
   pickFolder: () => Promise<string | null>;
   openPath: (targetPath: string) => Promise<boolean>;
+  getStartupStatus: () => Promise<StartupStatus>;
+  checkForUpdates: () => Promise<UpdateStatus>;
+  checkProviders: () => Promise<HealthCheckItem[]>;
 }
 
 interface SessionRecord {

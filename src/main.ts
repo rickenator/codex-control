@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'ele
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
+import packageJson from '../package.json';
 import type { IPty } from 'node-pty';
 
 const pty = require('node-pty') as typeof import('node-pty');
@@ -87,6 +88,30 @@ interface CodexEvent {
   timestamp: number;
 }
 
+interface HealthCheckItem {
+  id: string;
+  label: string;
+  status: 'checking' | 'ok' | 'warning' | 'error';
+  message: string;
+  detail?: string;
+  checkedAt: number;
+}
+
+interface UpdateStatus {
+  currentVersion: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  releaseUrl?: string;
+  status: 'ok' | 'warning' | 'error';
+  message: string;
+  checkedAt: number;
+}
+
+interface StartupStatus {
+  appUpdate: UpdateStatus;
+  checks: HealthCheckItem[];
+}
+
 let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
@@ -111,6 +136,101 @@ function isProvider(value: unknown): value is Provider {
 
 function normalizeProvider(value: unknown, fallback: Provider = appSettings.defaultProvider): Provider {
   return isProvider(value) ? value : fallback;
+}
+
+
+function compareVersions(left: string, right: string) {
+  const parse = (value: string) => value.replace(/^v/i, '').split(/[.-]/).map(part => Number.parseInt(part, 10) || 0);
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function githubReleaseRepo() {
+  return process.env.CONSIGLIO_UPDATE_REPO || 'rickenator/Consiglio';
+}
+
+async function checkForAppUpdate(): Promise<UpdateStatus> {
+  const checkedAt = Date.now();
+  const currentVersion = app.getVersion() || (packageJson as { version?: string }).version || '0.0.0';
+  const repo = githubReleaseRepo();
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+      headers: { 'User-Agent': `Consiglio/${currentVersion}`, Accept: 'application/vnd.github+json' },
+    });
+    if (!response.ok) {
+      return { currentVersion, updateAvailable: false, status: 'warning', message: `Could not check GitHub releases for ${repo}: ${response.status} ${response.statusText}`, checkedAt };
+    }
+    const payload = await response.json().catch(() => null) as { tag_name?: string; html_url?: string; name?: string } | null;
+    const latestVersion = payload?.tag_name || payload?.name;
+    if (!latestVersion) {
+      return { currentVersion, updateAvailable: false, status: 'warning', message: `Latest release for ${repo} did not include a version tag.`, checkedAt };
+    }
+    const updateAvailable = compareVersions(latestVersion, currentVersion) > 0;
+    return {
+      currentVersion,
+      latestVersion,
+      updateAvailable,
+      releaseUrl: payload?.html_url,
+      status: 'ok',
+      message: updateAvailable ? `Consiglio ${latestVersion} is available.` : `Consiglio is up to date (${currentVersion}).`,
+      checkedAt,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown update check error';
+    return { currentVersion, updateAvailable: false, status: 'warning', message: `Could not check for Consiglio updates: ${message}`, checkedAt };
+  }
+}
+
+function codexVersionCheck(): HealthCheckItem {
+  const checkedAt = Date.now();
+  const codexPath = process.env.CODEX_BIN || 'codex';
+  try {
+    const version = execFileSync(codexPath, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    return { id: 'codex-cli', label: 'Codex CLI', status: 'ok', message: version || `${codexPath} is installed.`, detail: codexPath, checkedAt };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Codex CLI was not found';
+    return { id: 'codex-cli', label: 'Codex CLI', status: 'error', message: `Codex CLI is unavailable: ${message}`, detail: codexPath, checkedAt };
+  }
+}
+
+async function providerHealthChecks(): Promise<HealthCheckItem[]> {
+  const checks: HealthCheckItem[] = [codexVersionCheck()];
+  const checkedAt = Date.now();
+  if (appSettings.remoteLlamaCpp.baseUrl) {
+    const result = await testRemoteLlamaCpp(appSettings.remoteLlamaCpp.baseUrl, appSettings.remoteLlamaCpp.apiKey, appSettings.remoteLlamaCpp.model);
+    checks.push({
+      id: 'provider-remote-llamacpp',
+      label: 'Remote llama.cpp',
+      status: result.ok ? 'ok' : 'warning',
+      message: result.message,
+      detail: appSettings.remoteLlamaCpp.baseUrl,
+      checkedAt,
+    });
+  }
+  for (const provider of appSettings.lanProviders) {
+    const baseUrl = lanProviderBaseUrl(provider);
+    const result = await testRemoteLlamaCpp(baseUrl, provider.apiKey, provider.model);
+    checks.push({
+      id: `provider-lan-${provider.id}`,
+      label: `LAN provider: ${provider.name}`,
+      status: result.ok ? 'ok' : 'warning',
+      message: result.message,
+      detail: baseUrl,
+      checkedAt,
+    });
+  }
+  return checks;
+}
+
+async function runStartupChecks(): Promise<StartupStatus> {
+  const [appUpdate, checks] = await Promise.all([checkForAppUpdate(), providerHealthChecks()]);
+  return { appUpdate, checks };
 }
 
 function createWindow() {
@@ -693,6 +813,9 @@ ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => getPendin
 ipcMain.handle('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
 ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
 ipcMain.handle('settings:get', () => appSettings);
+ipcMain.handle('system:startup-checks', () => runStartupChecks());
+ipcMain.handle('system:check-updates', () => checkForAppUpdate());
+ipcMain.handle('system:check-providers', () => providerHealthChecks());
 ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
     defaultProvider: normalizeProvider(nextSettings.defaultProvider),
@@ -767,6 +890,10 @@ ipcMain.handle('ui:pick-folder', async () => {
 });
 ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {
   try {
+    if (/^https?:\/\//i.test(targetPath)) {
+      await shell.openExternal(targetPath);
+      return true;
+    }
     const result = await shell.openPath(targetPath);
     return result === '';
   } catch {
