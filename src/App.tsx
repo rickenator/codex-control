@@ -34,8 +34,8 @@ type Notice = {
 const defaultSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
   remoteLlamaCpp: {
-    baseUrl: 'http://192.168.1.240:8081',
-    model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
+    baseUrl: 'http://192.168.1.243:8081',
+    model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
@@ -52,12 +52,34 @@ export default function App() {
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [providerStatus, setProviderStatus] = useState<Record<string, 'ok' | 'error' | 'checking' | null>>({});
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [showLanSettings, setShowLanSettings] = useState(false);
   const [lanForm, setLanForm] = useState<{ id: string; name: string; host: string; port: string; model: string; apiKey: string }>({
     id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
   });
+  const [discovering, setDiscovering] = useState(false);
+
+  const handleDiscoverLan = async () => {
+    setDiscovering(true);
+    try {
+      const result = await window.codexApi.lanDiscover();
+      if (result.error) {
+        setNotice({ kind: 'error', message: `LAN discovery failed: ${result.error}` });
+      } else if (result.added > 0) {
+        setNotice({ kind: 'success', message: `Found ${result.found} servers, added ${result.added} new providers` });
+        // Refresh settings
+        window.codexApi.getSettings().then(setSettings);
+      } else {
+        setNotice({ kind: 'info', message: `Scanned network: ${result.found} server(s) found, none new` });
+      }
+    } catch (e) {
+      setNotice({ kind: 'error', message: `LAN discovery failed: ${(e as Error).message}` });
+    } finally {
+      setDiscovering(false);
+    }
+  };
 
   useEffect(() => {
     window.codexApi.listSessions()
@@ -69,6 +91,13 @@ export default function App() {
     window.codexApi.getStartupStatus()
       .then(setStartupStatus)
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not run startup checks: ${error.message}` }));
+    window.codexApi.checkProviders()
+      .then((checks: Array<{ id: string; status: string; message: string }>) => {
+        const status: Record<string, 'ok' | 'error' | 'checking' | null> = {};
+        checks.forEach(c => { status[c.id] = c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : null; });
+        setProviderStatus(status);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -183,6 +212,15 @@ export default function App() {
       setNotice({ kind: 'info', message: 'Session stopped.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not stop session: ${(e as Error).message}` });
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await window.codexApi.deleteSession(sessionId);
+      setNotice({ kind: 'info', message: 'Session deleted.' });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Could not delete session: ${(e as Error).message}` });
     }
   };
 
@@ -339,6 +377,9 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {Object.entries(providerStatus).map(([id, status]) => (
+              <HealthPill key={id} label={id} status={status || 'checking'} message={status === 'ok' ? 'Provider ready' : status === 'error' ? 'Connection failed' : 'Checking…'} />
+            ))}
             {startupStatus ? (
               <>
                 <HealthPill label="Consiglio" status={startupStatus.appUpdate.updateAvailable ? 'warning' : startupStatus.appUpdate.status} message={startupStatus.appUpdate.latestVersion ? `${startupStatus.appUpdate.currentVersion} → ${startupStatus.appUpdate.latestVersion}` : startupStatus.appUpdate.currentVersion} />
@@ -385,6 +426,8 @@ export default function App() {
           onOpenPath={handleOpenPath}
           onTestRemote={handleTestRemoteLlamaCpp}
           onRequestNewSession={handleRequestNewSession}
+          onStopSession={handleStopSession}
+          onDeleteSession={handleDeleteSession}
           settings={{ ...settings, lanProviders: settings.lanProviders || [] }}
           onSettingsChange={(s: any) => handleSettingsChange(s)}
         />

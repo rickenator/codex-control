@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+import { discoverLlamaCppServers } from './main/lan-discovery';
 import path from 'path';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -119,8 +120,8 @@ let windowStatePath = '';
 let appSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
   remoteLlamaCpp: {
-    baseUrl: 'http://192.168.1.240:8081',
-    model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
+    baseUrl: 'http://192.168.1.243:8081',
+    model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
@@ -759,8 +760,19 @@ function stopSession(sessionId: string) {
   return true;
 }
 
+
+function deleteSession(sessionId: string) {
+  const state = sessions.get(sessionId);
+  if (state) { try { state.pty.kill(); } catch {} sessions.delete(sessionId); }
+  records.delete(sessionId);
+  events.delete(sessionId);
+  saveStore();
+  emitSessionUpdate();
+  return true;
+}
 ipcMain.handle('session:start', (_event, options: SessionOptions) => startSession(options || {}));
 ipcMain.handle('session:stop', (_event, sessionId: string) => stopSession(sessionId));
+ipcMain.handle('session:delete', (_event, sessionId: string) => deleteSession(sessionId));
 ipcMain.handle('session:list', () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at));
 ipcMain.handle('session:events', (_event, sessionId: string) => events.get(sessionId) || []);
 ipcMain.handle('session:terminal-buffer', (_event, sessionId: string) => sessions.get(sessionId)?.terminalBuffer || '');
@@ -856,6 +868,34 @@ ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
     saveSettings();
   }
   return appSettings;
+});
+
+ipcMain.handle('lan:discover', async () => {
+  try {
+    const discovered = await discoverLlamaCppServers();
+    // Merge with existing providers (avoid duplicates by host:port)
+    const existingKeys = new Set(appSettings.lanProviders.map(p => `${p.host}:${p.port}`));
+    let added = 0;
+    for (const server of discovered) {
+      if (!existingKeys.has(`${server.host}:${server.port}`)) {
+        appSettings.lanProviders.push({
+          id: `lan-${Date.now()}-${added}`,
+          name: server.name,
+          host: server.host,
+          port: server.port,
+          model: '',
+          apiKey: '',
+        });
+        existingKeys.add(`${server.host}:${server.port}`);
+        added += 1;
+      }
+    }
+    saveSettings();
+    return { found: discovered.length, added, providers: appSettings.lanProviders };
+  } catch (error: unknown) {
+    console.error('LAN discovery failed:', error);
+    return { found: 0, added: 0, error: String(error), providers: appSettings.lanProviders };
+  }
 });
 
 ipcMain.handle('ui:copy-text', (_event, text: string) => {

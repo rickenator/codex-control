@@ -73,6 +73,7 @@ interface CodexAPI {
     };
   }) => Promise<{ sessionId: string; pid: number }>;
   stopSession: (sessionId: string) => Promise<boolean>;
+  deleteSession: (sessionId: string) => Promise<boolean>;
   listSessions: () => Promise<SessionRecord[]>;
   getSessionEvents: (sessionId: string) => Promise<CodexEvent[]>;
   getTerminalBuffer: (sessionId: string) => Promise<string>;
@@ -112,6 +113,10 @@ interface CodexAPI {
   getStartupStatus: () => Promise<StartupStatus>;
   checkForUpdates: () => Promise<UpdateStatus>;
   checkProviders: () => Promise<HealthCheckItem[]>;
+  lanAddProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) => Promise<CodexSettings>;
+  lanRemoveProvider: (id: string) => Promise<CodexSettings>;
+  lanUpdateProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) => Promise<CodexSettings>;
+  lanDiscover: () => Promise<{ found: number; added: number; error?: string; providers: LanProviderConfig[] }>;
 }
 
 interface SessionRecord {

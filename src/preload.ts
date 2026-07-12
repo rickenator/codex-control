@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('session:start', opts),
   stopSession: (sessionId: string) =>
     ipcRenderer.invoke('session:stop', sessionId),
+  deleteSession: (sessionId: string) =>
+    ipcRenderer.invoke('session:delete', sessionId),
   listSessions: () =>
     ipcRenderer.invoke('session:list'),
   getSessionEvents: (sessionId: string) =>
@@ -123,6 +125,8 @@ contextBridge.exposeInMainWorld('codexApi', {
     ipcRenderer.invoke('lan:remove-provider', id),
   lanUpdateProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) =>
     ipcRenderer.invoke('lan:update-provider', provider),
+  lanDiscover: () =>
+    ipcRenderer.invoke('lan:discover'),
 
   copyText: (text: string) =>
     ipcRenderer.invoke('ui:copy-text', text),

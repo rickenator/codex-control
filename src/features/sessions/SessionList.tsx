@@ -44,6 +44,8 @@ interface Props {
   onOpenPath: (path: string, label: string) => void;
   onTestRemote: (config: { baseUrl: string; model: string; apiKey: string }) => Promise<boolean>;
   onRequestNewSession: () => Promise<void>;
+  onStopSession: (sessionId: string) => Promise<void>;
+  onDeleteSession: (sessionId: string) => Promise<void>;
   settings: {
     defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
     remoteLlamaCpp: {
@@ -74,7 +76,7 @@ const statusColor: Record<string, string> = {
   stopped: '#484f58',
 };
 
-export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, settings, onSettingsChange }: Props) {
+export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, onStopSession, onDeleteSession, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
@@ -85,24 +87,53 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [selectedLanProviderId, setSelectedLanProviderId] = useState(() => settings.lanProviders[0]?.id || '');
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
+  const selectedLanProvider = useMemo(
+    () => settings.lanProviders.find((lanProvider) => lanProvider.id === selectedLanProviderId) || settings.lanProviders[0] || null,
+    [selectedLanProviderId, settings.lanProviders],
+  );
+  const selectedLanBaseUrl = selectedLanProvider ? `${selectedLanProvider.host}:${selectedLanProvider.port}` : '';
+
+  const refreshModels = async () => {
+    if (provider !== 'remote_llamacpp' && provider !== 'lan') return;
+    const url = provider === 'lan' ? selectedLanBaseUrl : baseUrl.trim();
+    if (!url) return;
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const models = await window.codexApi.fetchModels({ baseUrl: url, apiKey: apiKey || undefined });
+      setAvailableModels(models);
+      if (models.length > 0 && !model.trim()) {
+        setModel(models[0].id);
+      }
+    } catch (e) {
+      setModelsError((e as Error).message || 'Failed to fetch models');
+      setAvailableModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
   const [search, setSearch] = useState('');
   const [isDroppingWorkspace, setIsDroppingWorkspace] = useState(false);
   useEffect(() => {
     if (provider !== 'remote_llamacpp' && provider !== 'lan') {
       setAvailableModels([]);
+      setModelsError(null);
       return;
     }
-    if (!baseUrl.trim()) {
+    // Auto-fetch models when provider changes and we have a URL
+    const url = provider === 'lan' ? selectedLanBaseUrl : baseUrl.trim();
+    if (!url) {
       setAvailableModels([]);
       return;
     }
     let cancelled = false;
     setModelsLoading(true);
-    window.codexApi.fetchModels({ baseUrl: baseUrl.trim(), apiKey: apiKey || undefined })
+    window.codexApi.fetchModels({ baseUrl: url, apiKey: apiKey || undefined })
       .then((models: Array<{ id: string; name?: string }>) => {
         if (!cancelled) {
           setAvailableModels(models);
-          // Auto-select first model if none selected yet
           if (models.length > 0 && !model.trim()) {
             setModel(models[0].id);
           }
@@ -111,7 +142,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       .catch(() => {})
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
-  }, [baseUrl, apiKey, provider]);
+  }, [baseUrl, apiKey, provider, selectedLanBaseUrl]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRef = useRef<HTMLInputElement>(null);
@@ -133,11 +164,6 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       .map(([repository]) => repository);
   }, [sessions]);
 
-  const selectedLanProvider = useMemo(
-    () => settings.lanProviders.find((lanProvider) => lanProvider.id === selectedLanProviderId) || settings.lanProviders[0] || null,
-    [selectedLanProviderId, settings.lanProviders],
-  );
-  const selectedLanBaseUrl = selectedLanProvider ? `${selectedLanProvider.host}:${selectedLanProvider.port}` : '';
   const remoteProfileReady = Boolean(baseUrl.trim() && model.trim());
   const lanProfileReady = provider !== 'lan' || Boolean(selectedLanProvider);
   const canLaunchRemote = provider !== 'remote_llamacpp' || remoteProfileReady;
@@ -228,7 +254,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, selectedLanProvider, selectedLanProviderId, onStartSession, onPickRepository, onSettingsChange]);
+  }, [provider, baseUrl, model, apiKey, repository, branch, selectedLanProvider, selectedLanProviderId, onStartSession, onPickRepository, onSettingsChange]);
 
   const filteredSessions = sessions.filter(session => {
     const haystack = [
@@ -316,8 +342,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               className="codex-button codex-button-secondary"
               onClick={() => {
                 setProvider('remote_llamacpp');
-                setBaseUrl('http://192.168.1.240:8081');
-                setModel('Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL');
+                setBaseUrl(settings.remoteLlamaCpp.baseUrl);
+                setModel('unsloth/Qwen3.6-35B-A3B-GGUF');
                 setApiKey('llama.cpp');
               }}
             >
@@ -606,16 +632,44 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                     </button>
                   </>
                 )}
+                {s.status === 'running' && (
+                  <button
+                    className="codex-button codex-button-secondary"
+                    aria-label={`Stop session for ${workspaceLabel}`}
+                    title="Stop session"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStopSession(s.id);
+                    }}
+                    style={{ padding: '4px 10px', color: '#f85149' }}
+                  >
+                    Stop
+                  </button>
+                )}
+                {(s.status === 'completed' || s.status === 'stopped') && (
+                  <button
+                    className="codex-button codex-button-secondary"
+                    aria-label={`Delete session for ${workspaceLabel}`}
+                    title="Delete session"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteSession(s.id);
+                    }}
+                    style={{ padding: '4px 10px', color: '#f85149' }}
+                  >
+                    Delete
+                  </button>
+                )}
                 {s.status === 'failed' && (
-                <button
-                  className="codex-button codex-button-secondary"
-                  aria-label={`Retry session for ${s.repository || 'untitled workspace'}`}
-                  title="Retry session"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReconnect(s.id);
-                  }}
-                  style={{ padding: '4px 10px', marginLeft: 8, color: '#58a6ff' }}
+                  <button
+                    className="codex-button codex-button-secondary"
+                    aria-label={`Retry session for ${s.repository || 'untitled workspace'}`}
+                    title="Retry session"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReconnect(s.id);
+                    }}
+                    style={{ padding: '4px 10px', color: '#58a6ff' }}
                   >
                     Retry
                   </button>
