@@ -40,6 +40,12 @@ interface CodexAPI {
       model?: string;
       apiKey?: string;
     };
+    selectedLanProviderId?: string;
+    lanProvider?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
   }) => Promise<{ sessionId: string; pid: number }>;
   stopSession: (sessionId: string) => Promise<boolean>;
   listSessions: () => Promise<SessionRecord[]>;
