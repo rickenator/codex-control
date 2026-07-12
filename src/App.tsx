@@ -192,6 +192,20 @@ export default function App() {
   }, [showSettings, showLanSettings]);
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
+  const [quickProvider, setQuickProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama'>(settings.defaultProvider);
+
+  useEffect(() => {
+    setQuickProvider(settings.defaultProvider);
+  }, [settings.defaultProvider]);
+
+  const handleQuickProviderChange = async (provider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama') => {
+    setQuickProvider(provider);
+    const updatedSettings = { ...settings, defaultProvider: provider };
+    if (provider === 'ollama') {
+      updatedSettings.ollama = settings.ollama || { baseUrl: 'http://localhost:11434', model: 'qwen2.5:32b-instruct-q4_K_M', apiKey: '' };
+    }
+    await handleSettingsChange(updatedSettings);
+  };
   const [terminalBuffer, setTerminalBuffer] = useState('');
 
   useEffect(() => {
@@ -466,16 +480,25 @@ export default function App() {
             : 'Start or select a session to continue'}
           </div>
         </div>
-        {sessions.some(s => s.status === 'running') && (
-          <button
-            className="codex-button codex-button-danger"
-            onClick={() => void handleStopAllSessions()}
-            style={{ fontSize: 11, padding: "4px 10px" }}
-            title="Stop all running sessions"
-          >
-            Stop All ({sessions.filter(s => s.status === 'running').length})
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {(['remote_llamacpp', 'ollama', 'default', 'gpt56', 'lan'] as const).map(p => (
+            <button
+              key={p}
+              onClick={() => void handleQuickProviderChange(p)}
+              className={`codex-button ${quickProvider === p ? 'codex-button-primary' : 'codex-button-secondary'}`}
+              style={{ fontSize: 10, padding: '3px 8px', whiteSpace: 'nowrap' }}
+              title={p === 'remote_llamacpp' ? 'Remote llama.cpp (godzilla)' : 
+                     p === 'ollama' ? 'Ollama (local)' : 
+                     p === 'default' ? 'Default Codex' : 
+                     p === 'gpt56' ? 'GPT-5.6' : 'LAN Provider'}
+            >
+              {p === 'remote_llamacpp' ? 'llama.cpp' : 
+               p === 'ollama' ? 'Ollama' : 
+               p === 'default' ? 'Default' : 
+               p === 'gpt56' ? 'GPT-5.6' : 'LAN'}
+            </button>
+          ))}
+        </div>
         <button
           className="codex-button codex-button-secondary"
           onClick={() => setShowSettings(true)}
@@ -826,7 +849,7 @@ export default function App() {
                   className="codex-select"
                   style={{ width: '100%', fontSize: 12, padding: '6px 8px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
                 >
-                  <option value="remote_llamacpp">Remote llama.cpp (godzilla)</option>
+                  <option value="remote_llamacpp">Remote llama.cpp</option>
                   <option value="ollama">Ollama (local)</option>
                   <option value="default">Default Codex</option>
                   <option value="gpt56">GPT-5.6</option>
