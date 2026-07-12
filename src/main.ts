@@ -341,6 +341,21 @@ function normalizeBaseUrl(baseUrl: string) {
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 }
 
+function lanProviderBaseUrl(lanProvider: Pick<LanProvider, 'host' | 'port'>) {
+  const host = lanProvider.host.trim().replace(/\/+$/, '');
+  const port = String(lanProvider.port).trim();
+
+  if (/^https?:\/\//i.test(host)) {
+    const url = new URL(host);
+    if (!url.port && port) {
+      url.port = port;
+    }
+    return normalizeBaseUrl(url.toString());
+  }
+
+  return normalizeBaseUrl(`http://${host}:${port}`);
+}
+
 async function fetchModels(baseUrl: string, apiKey?: string): Promise<{ id: string; name?: string }[]> {
   try {
     const normalized = normalizeBaseUrl(baseUrl);
@@ -516,17 +531,26 @@ function launchSession(
     const lanProvider = getLanProvider(options.selectedLanProviderId);
     if (!lanProvider) throw new Error('No LAN provider configured');
 
-    const normalizedBaseUrl = normalizeBaseUrl(`${lanProvider.host}:${lanProvider.port}`);
+    const lanHost = lanProvider.host.trim();
+    const lanModel = lanProvider.model.trim();
+    if (!lanHost) {
+      throw new Error('LAN provider host is required');
+    }
+    if (!lanModel) {
+      throw new Error('LAN provider model is required');
+    }
+
+    const normalizedBaseUrl = lanProviderBaseUrl(lanProvider);
     const apiKey = lanProvider.apiKey || 'llama.cpp';
 
     env.OPENAI_BASE_URL = normalizedBaseUrl;
     env.OPENAI_API_BASE = normalizedBaseUrl;
     env.OPENAI_API_KEY = apiKey;
-    env.OPENAI_MODEL = lanProvider.model;
+    env.OPENAI_MODEL = lanModel;
     env.CODEX_OSS_BASE_URL = normalizedBaseUrl;
 
     args.push(
-      '-c', `model=${quoteTomlString(lanProvider.model)}`,
+      '-c', `model=${quoteTomlString(lanModel)}`,
       '-c', 'model_provider="lan"',
       '-c', 'model_providers.lan.name=lan',
       '-c', `model_providers.lan.base_url=${quoteTomlString(normalizedBaseUrl)}`,
@@ -536,7 +560,7 @@ function launchSession(
 
     records.set(sessionId, {
       id: sessionId, repository, branch, provider,
-      model: lanProvider.model,
+      model: lanModel,
       baseUrl: normalizedBaseUrl,
       status: 'running', created_at: Date.now(), updated_at: Date.now(),
     });
@@ -556,8 +580,12 @@ function launchSession(
     repository,
     branch,
     provider,
-    model: provider === 'remote_llamacpp' ? resolvedRemote.model : undefined,
-    baseUrl: provider === 'remote_llamacpp' ? normalizeBaseUrl(resolvedRemote.baseUrl) : undefined,
+    model: provider === 'remote_llamacpp' ? resolvedRemote.model : provider === 'lan' ? getLanProvider(options.selectedLanProviderId)?.model.trim() : undefined,
+    baseUrl: provider === 'remote_llamacpp'
+      ? normalizeBaseUrl(resolvedRemote.baseUrl)
+      : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
+        ? lanProviderBaseUrl(getLanProvider(options.selectedLanProviderId)!)
+        : undefined,
     status: 'running',
     created_at: Date.now(),
     updated_at: Date.now(),
