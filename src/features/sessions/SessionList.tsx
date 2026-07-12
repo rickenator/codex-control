@@ -22,9 +22,17 @@ type NewSessionOptions = {
     model?: string;
     apiKey?: string;
   };
+  selectedLanProviderId?: string;
 };
 
-type LanProviderConfig = {  id: string;  name: string;  host: string;  port: number;  model: string;  apiKey: string;};
+type LanProviderConfig = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  model: string;
+  apiKey: string;
+};
 interface Props {
   sessions: Session[];
   selected: string | null;
@@ -75,6 +83,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [baseUrl, setBaseUrl] = useState(settings.remoteLlamaCpp.baseUrl);
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
+  const [selectedLanProviderId, setSelectedLanProviderId] = useState(() => settings.lanProviders[0]?.id || '');
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -125,7 +134,13 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       .map(([repository]) => repository);
   }, [sessions]);
 
+  const selectedLanProvider = useMemo(
+    () => settings.lanProviders.find((lanProvider) => lanProvider.id === selectedLanProviderId) || settings.lanProviders[0] || null,
+    [selectedLanProviderId, settings.lanProviders],
+  );
+  const selectedLanBaseUrl = selectedLanProvider ? `${selectedLanProvider.host}:${selectedLanProvider.port}` : '';
   const remoteProfileReady = Boolean(baseUrl.trim() && model.trim());
+  const lanProfileReady = provider !== 'lan' || Boolean(selectedLanProvider);
   const canLaunchRemote = provider !== 'remote_llamacpp' || remoteProfileReady;
 
   const launchSession = async () => {
@@ -144,6 +159,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       return;
     }
 
+    if (provider === 'lan' && !selectedLanProvider) {
+      return;
+    }
+
     onStartSession({
       repository: nextRepository || undefined,
       branch: branch.trim() || undefined,
@@ -153,6 +172,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         model: model.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
       } : undefined,
+      selectedLanProviderId: provider === 'lan' ? selectedLanProviderId || undefined : undefined,
     });
     onSettingsChange({
       defaultProvider: provider,
@@ -169,6 +189,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     setBaseUrl(settings.remoteLlamaCpp.baseUrl);
     setModel(settings.remoteLlamaCpp.model);
     setApiKey(settings.remoteLlamaCpp.apiKey);
+    setSelectedLanProviderId((currentId) => {
+      if (settings.lanProviders.some((lanProvider) => lanProvider.id === currentId)) {
+        return currentId;
+      }
+      return settings.lanProviders[0]?.id || '';
+    });
   }, [settings]);
 
   useEffect(() => {
@@ -203,7 +229,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, onStartSession, onPickRepository, onSettingsChange]);
+  }, [showNewSession, provider, baseUrl, model, apiKey, repository, branch, selectedLanProvider, selectedLanProviderId, onStartSession, onPickRepository, onSettingsChange]);
 
   const filteredSessions = sessions.filter(session => {
     const haystack = [
@@ -283,8 +309,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             </button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <MiniRow label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
-            <MiniRow label="Model" value={settings.remoteLlamaCpp.model} />
+            <MiniRow label="Endpoint" value={provider === 'lan' ? selectedLanBaseUrl || 'No LAN providers configured' : baseUrl} />
+            <MiniRow label="Model" value={provider === 'lan' ? selectedLanProvider?.model || 'No LAN providers configured' : model} />
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button
@@ -362,6 +388,24 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               <option value="gpt56">GPT-5.6</option>
               <option value="lan">LAN Provider</option>
             </select>
+            {provider === 'lan' && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: '#8b949e' }}>LAN provider:</span>
+                <select
+                  value={selectedLanProviderId}
+                  onChange={(event) => setSelectedLanProviderId(event.target.value)}
+                  className="codex-select"
+                  style={{ flex: 1 }}
+                  disabled={settings.lanProviders.length === 0}
+                >
+                  {settings.lanProviders.length === 0 ? (
+                    <option value="">No LAN providers configured</option>
+                  ) : settings.lanProviders.map((lanProvider) => (
+                    <option key={lanProvider.id} value={lanProvider.id}>{lanProvider.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {provider === 'remote_llamacpp' && (
               <>
                 <input
@@ -407,13 +451,13 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             )}
             <button
               className="codex-button codex-button-secondary"
-              disabled={provider === 'remote_llamacpp' && !canLaunchRemote}
+              disabled={(provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady}
               onClick={() => void launchSession()}
               style={{
                 width: '100%',
-                background: provider === 'remote_llamacpp' && !canLaunchRemote ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
+                background: (provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
                 color: '#fff',
-                cursor: provider === 'remote_llamacpp' && !canLaunchRemote ? 'not-allowed' : 'pointer',
+                cursor: (provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady ? 'not-allowed' : 'pointer',
               }}
             >
               Start Session
@@ -434,6 +478,11 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             {provider === 'remote_llamacpp' && !remoteProfileReady && (
               <div className="codex-help" style={{ marginTop: 4 }}>
                 Base URL and model are required for remote launches.
+              </div>
+            )}
+            {provider === 'lan' && !selectedLanProvider && (
+              <div className="codex-help" style={{ marginTop: 4 }}>
+                Configure a LAN provider before launching.
               </div>
             )}
             {recentWorkspaces.length > 0 && (
@@ -463,25 +512,6 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             </div>
           </div>
         )}
-        {provider === 'lan' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
-            <select
-              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
-              onChange={(e) => {
-                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
-              }}
-              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
-            >
-              {settings.lanProviders.map((p: LanProviderConfig) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>
-              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
-            </span>
-          </div>
-        )}
       </div>
 
       <div style={{ padding: '0 14px 10px' }}>
@@ -501,25 +531,6 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             No sessions match “{search.trim()}”.
           </div>
         )}
-        {provider === 'lan' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
-            <select
-              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
-              onChange={(e) => {
-                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
-              }}
-              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
-            >
-              {settings.lanProviders.map((p: LanProviderConfig) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>
-              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
-            </span>
-          </div>
-        )}
         {sessions.length === 0 && !showNewSession && (
           <div className="codex-empty-state" style={{ paddingTop: 20, paddingBottom: 20 }}>
             No sessions yet. Click "+ New" to start a session.
@@ -531,25 +542,6 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 Open new session drawer
               </button>
             </div>
-          </div>
-        )}
-        {provider === 'lan' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>Select:</span>
-            <select
-              value={settings.lanProviders.length > 0 ? settings.lanProviders[0].id : ''}
-              onChange={(e) => {
-                onSettingsChange({ ...settings, lanProviders: settings.lanProviders });
-              }}
-              style={{ background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}
-            >
-              {settings.lanProviders.map((p: LanProviderConfig) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: 11, color: '#8b949e' }}>
-              {settings.lanProviders.length > 0 ? settings.lanProviders[0].model : 'No LAN providers configured'}
-            </span>
           </div>
         )}
         {(search.trim() ? filteredSessions : sessions).map(s => {
