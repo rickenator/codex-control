@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('codexApi', {
       model?: string;
       apiKey?: string;
     };
+    defaultModel?: string;
   }) =>
     ipcRenderer.invoke('session:start', opts),
   stopSession: (sessionId: string) =>

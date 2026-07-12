@@ -1,4 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+const commonModels = [
+  { id: 'gpt-4o', name: 'GPT-4o' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+  { id: 'gpt-4', name: 'GPT-4' },
+  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+  { id: 'claude-3-opus', name: 'Claude 3 Opus' },
+  { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet' },
+  { id: 'claude-3-haiku', name: 'Claude 3 Haiku' },
+  { id: 'gemini-pro', name: 'Gemini Pro' },
+  { id: 'llama-3.1-70b', name: 'Llama 3.1 70B' },
+];
+
+const gptModels = [
+  { id: 'gpt-5.6', name: 'GPT-5.6' },
+  { id: 'gpt-5', name: 'GPT-5' },
+  { id: 'gpt-4o', name: 'GPT-4o' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+  { id: 'gpt-4', name: 'GPT-4' },
+];
 
 interface Session {
   id: string;
@@ -23,6 +44,7 @@ type NewSessionOptions = {
     apiKey?: string;
   };
   selectedLanProviderId?: string;
+  defaultModel?: string;
 };
 
 type LanProviderConfig = {
@@ -54,6 +76,7 @@ interface Props {
       apiKey: string;
     };
     lanProviders: LanProviderConfig[];
+    defaultModel?: string;
   };
   onSettingsChange: (settings: {
     defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
@@ -63,6 +86,7 @@ interface Props {
       apiKey: string;
     };
     lanProviders: LanProviderConfig[];
+    defaultModel?: string;
   }) => void;
 }
 
@@ -212,7 +236,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     onSettingsChange({
       defaultProvider: provider,
       remoteLlamaCpp: { baseUrl, model, apiKey },
-      defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : undefined,
+      defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : (settings.defaultModel || undefined),
       lanProviders: settings.lanProviders || [],
     });
     setRepository('');
@@ -232,7 +256,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       }
       return settings.lanProviders[0]?.id || '';
     });
-  }, [settings]);
+  }, [settings.defaultProvider, settings.remoteLlamaCpp.baseUrl, settings.remoteLlamaCpp.model, settings.remoteLlamaCpp.apiKey, settings.defaultModel, settings.lanProviders]);
 
   useEffect(() => {
     const unsubscribe = window.codexApi.onNewSession(() => {
@@ -384,7 +408,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                       if (selectedLanProvider) {
                         const updated = { ...selectedLanProvider, model: e.target.value };
                         window.codexApi.lanUpdateProvider(updated);
-                        setSettings({ ...settings, lanProviders: settings.lanProviders.map(p => p.id === updated.id ? updated : p) });
+                        onSettingsChange({ ...settings, lanProviders: settings.lanProviders.map(p => p.id === updated.id ? updated : p) });
                       }
                     }}
                     className="codex-select"
@@ -399,24 +423,35 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 )
               )}
               {provider === 'default' && (
-                <input
-                  type="text"
+                <select
                   value={defaultProviderModel}
                   onChange={(e) => setDefaultProviderModel(e.target.value)}
-                  className="codex-input"
-                  style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
-                  placeholder="Enter model name (uses Codex default if empty)"
-                />
+                  className="codex-select"
+                  style={{ flex: 1, fontSize: 11, padding: '2px 4px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                >
+                  <option value="">Use Codex default</option>
+                  {commonModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                  {defaultProviderModel && !commonModels.some(m => m.id === defaultProviderModel) && (
+                    <option value={defaultProviderModel}>{defaultProviderModel}</option>
+                  )}
+                </select>
               )}
               {provider === 'gpt56' && (
-                <input
-                  type="text"
+                <select
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="codex-input"
-                  style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
-                  placeholder="Enter model name (default: gpt-5.6)"
-                />
+                  className="codex-select"
+                  style={{ flex: 1, fontSize: 11, padding: '2px 4px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                >
+                  {gptModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                  {model && !gptModels.some(m => m.id === model) && (
+                    <option value={model}>{model}</option>
+                  )}
+                </select>
               )}
               {(provider === 'remote_llamacpp' || provider === 'lan') && (
                 <button

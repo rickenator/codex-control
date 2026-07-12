@@ -24,6 +24,7 @@ type AppSettings = {
     apiKey: string;
   };
   lanProviders: LanProviderConfig[];
+  defaultModel?: string;
 };
 
 type Notice = {
@@ -39,6 +40,7 @@ const defaultSettings: AppSettings = {
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
+  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF',
 };
 
 export default function App() {
@@ -420,6 +422,7 @@ export default function App() {
         <div className="codex-chip-list">
           <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
           <Pill label="Model" value={
+            activeSession?.model ||
             settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.model :
             settings.defaultProvider === "default" ? (settings.defaultModel || settings.remoteLlamaCpp.model) :
             settings.defaultProvider === "gpt56" ? "gpt-5.6" :
@@ -722,6 +725,124 @@ export default function App() {
               >
                 {lanForm.id ? 'Update' : 'Add'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* General Settings Modal */}
+      {showSettings && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }} onClick={() => setShowSettings(false)}>
+          <div style={{
+            background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
+            padding: 24, width: 520, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#f0f6fc' }}>
+              Launch Settings
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Default Provider */}
+              <div>
+                <label style={{ fontSize: 12, color: '#8b949e', marginBottom: 4, display: 'block' }}>Default Provider</label>
+                <select
+                  value={settings.defaultProvider}
+                  onChange={e => setSettings({ ...settings, defaultProvider: e.target.value as any })}
+                  className="codex-select"
+                  style={{ width: '100%', fontSize: 12, padding: '6px 8px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                >
+                  <option value="remote_llamacpp">Remote llama.cpp (godzilla)</option>
+                  <option value="default">Default Codex</option>
+                  <option value="gpt56">GPT-5.6</option>
+                  <option value="lan">LAN Provider</option>
+                </select>
+              </div>
+
+              {/* Default Model */}
+              <div>
+                <label style={{ fontSize: 12, color: '#8b949e', marginBottom: 4, display: 'block' }}>Default Model (for Default provider)</label>
+                <input
+                  type="text"
+                  value={settings.defaultModel || settings.remoteLlamaCpp.model}
+                  onChange={e => setSettings({ ...settings, defaultModel: e.target.value })}
+                  className="codex-input"
+                  placeholder="unsloth/Qwen3.6-35B-A3B-GGUF"
+                />
+              </div>
+
+              {/* Remote llama.cpp Settings */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
+                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600, marginBottom: 8, display: 'block' }}>Remote llama.cpp</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Base URL (e.g., http://192.168.1.243:8081)"
+                    value={settings.remoteLlamaCpp.baseUrl}
+                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, baseUrl: e.target.value } })}
+                    className="codex-input"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Model"
+                    value={settings.remoteLlamaCpp.model}
+                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, model: e.target.value } })}
+                    className="codex-input"
+                  />
+                  <input
+                    type="password"
+                    placeholder="API Key"
+                    value={settings.remoteLlamaCpp.apiKey}
+                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, apiKey: e.target.value } })}
+                    className="codex-input"
+                  />
+                </div>
+              </div>
+
+              {/* LAN Providers Summary */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>LAN Providers</label>
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => { setShowSettings(false); setShowLanSettings(true); }}
+                    style={{ fontSize: 11, padding: '4px 10px' }}
+                  >
+                    Manage
+                  </button>
+                </div>
+                {settings.lanProviders.length === 0 ? (
+                  <span style={{ fontSize: 12, color: '#8b949e' }}>No LAN providers configured</span>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {settings.lanProviders.map(p => (
+                      <div key={p.id} style={{ fontSize: 12, color: '#f0f6fc', padding: '4px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 4 }}>
+                        {p.name || p.host}:{p.port} {p.model ? `(${p.model})` : ''}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => setShowSettings(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="codex-button codex-button-primary"
+                  onClick={() => {
+                    handleSettingsChange(settings);
+                    setShowSettings(false);
+                  }}
+                >
+                  Save Settings
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -46,6 +46,7 @@ export interface SessionOptions {
     model?: string;
     apiKey?: string;
   };
+  defaultModel?: string;
 }
 
 interface SessionRecord {
@@ -410,6 +411,17 @@ function recordEvent(sessionId: string, type: string, content: string) {
     saveStore();
   }
   mainWindow?.webContents.send('codex:event', event);
+  // Emit approval request events for approval_request types
+  if (type === 'approval_request') {
+    try {
+      const approvalData = JSON.parse(content) as ApprovalRequest;
+      approvals.set(approvalData.id, approvalData);
+      saveStore();
+      mainWindow?.webContents.send('codex:approval-request', approvalData);
+    } catch {
+      // Not a valid approval request JSON, skip
+    }
+  }
   return event;
 }
 
@@ -669,7 +681,7 @@ function launchSession(
     );
   }
   if (provider === 'default') {
-    const defaultModel = appSettings.defaultModel?.trim();
+    const defaultModel = options.defaultModel?.trim() || appSettings.defaultModel?.trim();
     if (defaultModel) {
       env.OPENAI_MODEL = defaultModel;
       args.push('-c', `model=${quoteTomlString(defaultModel)}`);
@@ -728,7 +740,11 @@ function launchSession(
     repository,
     branch,
     provider,
-    model: provider === 'remote_llamacpp' ? resolvedRemote.model : provider === 'lan' ? getLanProvider(options.selectedLanProviderId)?.model.trim() : undefined,
+    model: provider === 'remote_llamacpp' ? resolvedRemote.model : 
+           provider === 'lan' ? (getLanProvider(options.selectedLanProviderId)?.model.trim() || appSettings.defaultModel?.trim()) :
+           provider === 'default' ? (options.defaultModel?.trim() || appSettings.defaultModel?.trim()) :
+           provider === 'gpt56' ? 'gpt-5.6' :
+           undefined,
     baseUrl: provider === 'remote_llamacpp'
       ? normalizeBaseUrl(resolvedRemote.baseUrl)
       : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
@@ -819,6 +835,11 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
     saveStore();
   }
   emitSessionUpdate();
+  // Notify UI about recovered sessions
+  const recoveredIds = [...sessions.keys()];
+  if (recoveredIds.length > 0) {
+    mainWindow?.webContents.send('codex:sessions-recovered', recoveredIds);
+  }
   return true;
 });
 
@@ -868,8 +889,8 @@ ipcMain.handle('lan:remove-provider', (_event, id: string) => {
     appSettings.defaultProvider = 'remote_llamacpp';
   }
   saveSettings();
-  return appSettings;
   mainWindow?.webContents.send('settings:changed', appSettings);
+  return appSettings;
 });
 
 ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
