@@ -144,6 +144,14 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     return () => { cancelled = true; };
   }, [baseUrl, apiKey, provider, selectedLanBaseUrl]);
 
+  // Reset model state when switching away from providers that use /v1/models
+  useEffect(() => {
+    if (provider !== 'remote_llamacpp' && provider !== 'lan') {
+      setAvailableModels([]);
+      setModelsError(null);
+    }
+  }, [provider]);
+
   const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -335,7 +343,80 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <MiniRow label="Endpoint" value={provider === 'lan' ? selectedLanBaseUrl || 'No LAN providers configured' : baseUrl} />
-            <MiniRow label="Model" value={provider === 'lan' ? selectedLanProvider?.model || 'No LAN providers configured' : model} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+              <span style={{ color: '#8b949e', minWidth: 40 }}>Model</span>
+              {provider === 'remote_llamacpp' && (
+                modelsLoading ? (
+                  <span style={{ color: '#58a6ff' }}>Fetching...</span>
+                ) : availableModels.length > 0 ? (
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="codex-select"
+                    style={{ flex: 1, fontSize: 11, padding: '2px 4px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="codex-input"
+                    style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
+                    placeholder="Enter model name"
+                  />
+                )
+              )}
+              {provider === 'lan' && (
+                modelsLoading ? (
+                  <span style={{ color: '#58a6ff' }}>Fetching...</span>
+                ) : availableModels.length > 0 ? (
+                  <select
+                    value={selectedLanProvider?.model || ''}
+                    onChange={(e) => {
+                      if (selectedLanProvider) {
+                        const updated = { ...selectedLanProvider, model: e.target.value };
+                        window.codexApi.lanUpdateProvider(updated);
+                        setSettings({ ...settings, lanProviders: settings.lanProviders.map(p => p.id === updated.id ? updated : p) });
+                      }
+                    }}
+                    className="codex-select"
+                    style={{ flex: 1, fontSize: 11, padding: '2px 4px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ color: '#8b949e' }}>{selectedLanProvider?.model || 'No model set'}</span>
+                )
+              )}
+              {provider === 'default' && (
+                <span style={{ color: '#8b949e' }}>Codex default</span>
+              )}
+              {(provider === 'remote_llamacpp' || provider === 'lan') && (
+                <button
+                  onClick={() => refreshModels()}
+                  disabled={modelsLoading}
+                  style={{
+                    background: 'none',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 4,
+                    color: modelsLoading ? '#8b949e' : '#58a6ff',
+                    cursor: modelsLoading ? 'wait' : 'pointer',
+                    padding: '2px 6px',
+                    fontSize: 11,
+                    flexShrink: 0,
+                  }}
+                  title="Refresh model list"
+                >
+                  {modelsLoading ? '⟳' : '↻'}
+                </button>
+              )}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button
