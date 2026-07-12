@@ -87,6 +87,11 @@ interface Props {
     };
     lanProviders: LanProviderConfig[];
     defaultModel?: string;
+    localProviderBehavior: {
+      isolateProfile: boolean;
+      enableWebSearch: boolean;
+      enableMultiAgent: boolean;
+    };
   };
   onSettingsChange: (settings: {
     defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
@@ -102,6 +107,11 @@ interface Props {
     };
     lanProviders: LanProviderConfig[];
     defaultModel?: string;
+    localProviderBehavior: {
+      isolateProfile: boolean;
+      enableWebSearch: boolean;
+      enableMultiAgent: boolean;
+    };
   }) => void;
 }
 
@@ -259,6 +269,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       remoteLlamaCpp: { baseUrl, model, apiKey },
       defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : (settings.defaultModel || undefined),
       lanProviders: settings.lanProviders || [],
+      localProviderBehavior: settings.localProviderBehavior,
     });
     setRepository('');
     setBranch('');
@@ -400,6 +411,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 ollama: { baseUrl: settings.ollama.baseUrl, model: settings.ollama.model, apiKey: settings.ollama.apiKey },
                 remoteLlamaCpp: { baseUrl, model, apiKey },
                 lanProviders: settings.lanProviders || [],
+                localProviderBehavior: settings.localProviderBehavior,
               })}
             >
               Save as default
@@ -549,8 +561,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               className="codex-button codex-button-secondary"
               onClick={() => {
                 setProvider('remote_llamacpp');
-                setBaseUrl(settings.remoteLlamaCpp.baseUrl);
-                setModel('unsloth/Qwen3.6-35B-A3B-GGUF');
+                setBaseUrl('http://192.168.1.243:8081');
+                setModel('unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M');
                 setApiKey('llama.cpp');
               }}
             >

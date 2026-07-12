@@ -80,6 +80,11 @@ interface AppSettings {
   };
   lanProviders: LanProvider[];
   defaultModel?: string;
+  localProviderBehavior: {
+    isolateProfile: boolean;
+    enableWebSearch: boolean;
+    enableMultiAgent: boolean;
+  };
 }
 
 interface ApprovalRequest {
@@ -125,6 +130,17 @@ interface StartupStatus {
   checks: HealthCheckItem[];
 }
 
+const defaultRemoteLlamaCpp = {
+  baseUrl: 'http://192.168.1.243:8081',
+  model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+  apiKey: 'llama.cpp',
+};
+
+const retiredRemoteLlamaCpp = {
+  baseUrl: 'http://192.168.1.240:8081',
+  model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
+};
+
 let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
@@ -138,11 +154,16 @@ let appSettings: AppSettings = {
   },
   remoteLlamaCpp: {
     baseUrl: 'http://192.168.1.243:8081',
-    model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
+    model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
-  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF',
+  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+  localProviderBehavior: {
+    isolateProfile: true,
+    enableWebSearch: true,
+    enableMultiAgent: false,
+  },
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
@@ -374,7 +395,18 @@ function initSettings() {
         },
         lanProviders: Array.isArray(saved.lanProviders) ? saved.lanProviders : [],
         defaultModel: saved.defaultModel?.trim() || appSettings.defaultModel,
+        localProviderBehavior: {
+          isolateProfile: saved.localProviderBehavior?.isolateProfile !== false,
+          enableWebSearch: saved.localProviderBehavior?.enableWebSearch !== false,
+          enableMultiAgent: saved.localProviderBehavior?.enableMultiAgent === true,
+        },
       };
+      if (
+        appSettings.remoteLlamaCpp.baseUrl === retiredRemoteLlamaCpp.baseUrl
+        && appSettings.remoteLlamaCpp.model === retiredRemoteLlamaCpp.model
+      ) {
+        appSettings.remoteLlamaCpp = { ...defaultRemoteLlamaCpp };
+      }
     }
   } catch (error: unknown) {
     console.error('Could not load settings:', error);
@@ -662,6 +694,25 @@ function launchSession(
   const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
   const args = ['--no-alt-screen', '-C', repository];
   const env = { ...process.env };
+  const isLocalOpenAiCompatibleProvider = provider === 'remote_llamacpp' || provider === 'lan';
+  if (isLocalOpenAiCompatibleProvider) {
+    const behavior = appSettings.localProviderBehavior;
+    if (behavior.isolateProfile) {
+      const profileHome = path.join(app.getPath('userData'), 'local-provider-profiles', sessionId);
+      fs.mkdirSync(profileHome, { recursive: true });
+      env.CODEX_HOME = profileHome;
+    }
+    args.push(
+      '-c', `features.multi_agent=${behavior.enableMultiAgent}`,
+      '-c', 'model_supports_reasoning_summaries=false',
+      '-c', 'model_reasoning_summary="none"',
+    );
+    if (behavior.enableWebSearch) {
+      args.push('--search');
+    } else {
+      args.push('-c', 'web_search="disabled"');
+    }
+  }
   const resolvedRemote = {
     baseUrl: provider === 'remote_llamacpp'
       ? options.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl
@@ -912,7 +963,12 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
       apiKey: nextSettings.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
     },
     lanProviders: nextSettings.lanProviders ?? appSettings.lanProviders,
-    defaultModel: nextSettings.defaultModel?.trim() || appSettings.defaultModel,
+        defaultModel: saved.defaultModel?.trim() || appSettings.defaultModel,
+        localProviderBehavior: {
+          isolateProfile: saved.localProviderBehavior?.isolateProfile !== false,
+          enableWebSearch: saved.localProviderBehavior?.enableWebSearch !== false,
+          enableMultiAgent: saved.localProviderBehavior?.enableMultiAgent === true,
+        },
   };
   saveSettings();
   mainWindow?.webContents.send('settings:changed', appSettings);

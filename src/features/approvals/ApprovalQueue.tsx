@@ -104,7 +104,8 @@ export default function ApprovalQueue({ sessionId, onApprove, onReject, onCopy, 
         <div className="codex-empty-state" style={{ marginTop: 40 }}>
           No pending approvals.
           <br />
-          Commands that need review will appear here as they are queued.
+          CLI-backed sessions show approval prompts in the live terminal.
+          This pane is reserved for app-server approval events when that bridge is connected.
           <div style={{ marginTop: 10 }}>
             <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
               Open new session drawer

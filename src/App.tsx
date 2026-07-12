@@ -30,6 +30,11 @@ type AppSettings = {
   };
   lanProviders: LanProviderConfig[];
   defaultModel?: string;
+  localProviderBehavior: {
+    isolateProfile: boolean;
+    enableWebSearch: boolean;
+    enableMultiAgent: boolean;
+  };
 };
 
 type Notice = {
@@ -46,11 +51,16 @@ const defaultSettings: AppSettings = {
   },
   remoteLlamaCpp: {
     baseUrl: 'http://192.168.1.243:8081',
-    model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
+    model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
-  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF',
+  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+  localProviderBehavior: {
+    isolateProfile: true,
+    enableWebSearch: true,
+    enableMultiAgent: false,
+  },
 };
 
 export default function App() {
@@ -67,7 +77,7 @@ export default function App() {
   const [providerStatus, setProviderStatus] = useState<Record<string, 'ok' | 'error' | 'checking' | null>>({});
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
-  const [showLanSettings, setShowLanSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [lanForm, setLanForm] = useState<{ id: string; name: string; host: string; port: string; model: string; apiKey: string }>({
     id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
   });
@@ -543,7 +553,6 @@ export default function App() {
         >
           ⚙ Settings
         </button>
-        <div className="codex-chip-list">
           <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
           <Pill label="Model" value={
             activeSession?.model ||
@@ -569,6 +578,67 @@ export default function App() {
           {activeSession?.status && <Pill label="Session" value={activeSession.status} />}
         </div>
       </header>
+
+      {showSettings && (
+        <section className="codex-panel" style={{ margin: '0 14px 14px', flex: '0 0 auto' }}>
+          <div className="codex-panel-header">
+            <div className="codex-panel-title">
+              <span className="codex-kicker">Settings</span>
+              <span className="codex-panel-heading">Local provider behavior</span>
+            </div>
+          </div>
+          <div style={{ padding: 14, display: 'grid', gap: 12 }}>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={settings.localProviderBehavior.isolateProfile}
+                onChange={(event) => void handleSettingsChange({
+                  ...settings,
+                  localProviderBehavior: { ...settings.localProviderBehavior, isolateProfile: event.target.checked },
+                })}
+              />
+              <span>
+                <strong style={{ color: '#f0f6fc' }}>Isolate local-provider sessions</strong>
+                <span className="codex-help" style={{ display: 'block', marginTop: 2 }}>
+                  Keeps normal Codex MCP servers and profile settings out of llama.cpp/LAN sessions.
+                </span>
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={settings.localProviderBehavior.enableWebSearch}
+                onChange={(event) => void handleSettingsChange({
+                  ...settings,
+                  localProviderBehavior: { ...settings.localProviderBehavior, enableWebSearch: event.target.checked },
+                })}
+              />
+              <span>
+                <strong style={{ color: '#f0f6fc' }}>Enable web search</strong>
+                <span className="codex-help" style={{ display: 'block', marginTop: 2 }}>
+                  Starts local-provider sessions with Codex live web search enabled.
+                </span>
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={settings.localProviderBehavior.enableMultiAgent}
+                onChange={(event) => void handleSettingsChange({
+                  ...settings,
+                  localProviderBehavior: { ...settings.localProviderBehavior, enableMultiAgent: event.target.checked },
+                })}
+              />
+              <span>
+                <strong style={{ color: '#f0f6fc' }}>Enable multi-agent</strong>
+                <span className="codex-help" style={{ display: 'block', marginTop: 2 }}>
+                  Experimental with local providers; enable only when that server handles the required tool schemas.
+                </span>
+              </span>
+            </label>
+          </div>
+        </section>
+      )}
 
       <div className="codex-shell-grid">
         <SessionList

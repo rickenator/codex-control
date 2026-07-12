@@ -64,6 +64,11 @@ contextBridge.exposeInMainWorld('codexApi', {
       model: string;
       apiKey: string;
     }>;
+    localProviderBehavior?: {
+      isolateProfile?: boolean;
+      enableWebSearch?: boolean;
+      enableMultiAgent?: boolean;
+    };
   }) =>
     ipcRenderer.invoke('settings:update', settings),
 

@@ -23,6 +23,11 @@ interface CodexSettings {
   };
   lanProviders: LanProviderConfig[];
   defaultModel?: string;
+  localProviderBehavior: {
+    isolateProfile: boolean;
+    enableWebSearch: boolean;
+    enableMultiAgent: boolean;
+  };
 }
 
 interface CodexSettingsInput {
@@ -39,6 +44,7 @@ interface CodexSettingsInput {
   };
   lanProviders?: LanProviderConfig[];
   defaultModel?: string;
+  localProviderBehavior?: Partial<CodexSettings['localProviderBehavior']>;
 }
 
 

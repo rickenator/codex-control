@@ -6,7 +6,7 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 
 - **Frontend**: React + TypeScript (Vite)
 - **Shell**: Electron (Linux packaging: AppImage + .deb)
-- **Native backend**: C++17 compiled as a Node.js native addon (node-addon-api)
+- **Terminal backend**: node-pty bridge to the real Codex CLI
 - **State**: SQLite (better-sqlite3) + append-only JSONL event logs
 - **Integration**: Codex app-server protocol (preferred) → CLI adapter (fallback)
 
@@ -28,7 +28,7 @@ A Linux desktop control plane for Codex CLI — observability and session manage
 | M3 | Approval UI with exact command details | ✅ Done |
 | M4 | Git status and unified diff | ✅ Done |
 | M5 | Session browser and persistence | ✅ Done |
-| M6 | Local llama.cpp provider validation | ⏳ Pending |
+| M6 | Local llama.cpp provider validation | ✅ Done |
 | M7 | Packaging for Ubuntu (AppImage + .deb) | ✅ Done |
 | M8 | Dogfood on a non-ATT-1 project | ⏳ Pending |
 
@@ -42,10 +42,7 @@ The GUI must never become a simplified toy layer. Every visual action should hav
 # Install dependencies
 npm install
 
-# Build native C++ addon
-npm run build:native
-
-# Run dev server (renderer + Electron)
+# Build and run the Electron app
 npm run dev:all
 ```
 
@@ -54,7 +51,7 @@ npm run dev:all
 The new session drawer can launch Codex against a remote `llama-server` endpoint directly.
 
 - Select `Remote llama.cpp` in the new-session panel.
-- Enter the server base URL, such as `http://192.168.1.240:8081`.
+- Enter the server base URL, such as `http://192.168.1.243:8081`.
 - Enter the model name used by that server.
 - Leave the API key as the default `llama.cpp` unless your server expects something else.
 - The app passes the required Codex provider overrides, including `wire_api = "responses"`, for the spawned session.
@@ -64,6 +61,7 @@ The new session drawer can launch Codex against a remote `llama-server` endpoint
 - Window size and maximized state are remembered between launches.
 - `Ctrl/Cmd+N` opens the new-session drawer from the native app menu.
 - The app uses a real Linux-style application menu for reload, zoom, developer tools, and fullscreen.
+- The Settings panel makes local-provider isolation, web search, and multi-agent behavior explicit and persistent.
 
 ## Packaging
 
@@ -71,19 +69,18 @@ Build a Linux package with:
 
 ```bash
 npm run build
-npm run package:linux -- --dir
+npm run package:linux
 ```
 
-The package step stays offline-friendly here by reusing the local native builds for `better-sqlite3` and `node-pty`.
+The release command produces both an AppImage and a Debian package. The Debian
+package is intentionally uncompressed so local release builds complete
+reliably; use the smaller AppImage when download size matters.
 
 ## Repository layout
 
 ```
 consiglio/
-  native/               # C++17 native addon
-    src/addon.cpp       # N-API bindings (process, git, event logging)
-    src/node_pty_bridge.h/cpp  # PTY lifecycle management
-    binding.gyp         # node-gyp build config
+  native/               # Legacy native-addon experiments (not packaged at runtime)
   src/                  # Electron + React frontend
     main.ts             # Electron main process
     preload.ts          # contextBridge API
