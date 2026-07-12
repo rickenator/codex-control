@@ -68,6 +68,7 @@ interface AppSettings {
     apiKey: string;
   };
   lanProviders: LanProvider[];
+  defaultModel?: string;
 }
 
 interface ApprovalRequest {
@@ -125,6 +126,7 @@ let appSettings: AppSettings = {
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
+  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF',
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
@@ -350,6 +352,7 @@ function initSettings() {
           apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
         },
         lanProviders: Array.isArray(saved.lanProviders) ? saved.lanProviders : [],
+        defaultModel: saved.defaultModel?.trim() || appSettings.defaultModel,
       };
     }
   } catch (error: unknown) {
@@ -665,6 +668,13 @@ function launchSession(
       '-c', 'model_providers.remote_llamacpp.env_key="OPENAI_API_KEY"',
     );
   }
+  if (provider === 'default') {
+    const defaultModel = appSettings.defaultModel?.trim();
+    if (defaultModel) {
+      env.OPENAI_MODEL = defaultModel;
+      args.push('-c', `model=${quoteTomlString(defaultModel)}`);
+    }
+  }
   if (provider === 'gpt56') {
     args.push('-m', 'gpt-5.6');
   }
@@ -673,13 +683,10 @@ function launchSession(
     if (!lanProvider) throw new Error('No LAN provider configured');
 
     const lanHost = lanProvider.host.trim();
-    const lanModel = lanProvider.model.trim();
     if (!lanHost) {
       throw new Error('LAN provider host is required');
     }
-    if (!lanModel) {
-      throw new Error('LAN provider model is required');
-    }
+    const lanModel = lanProvider.model.trim() || appSettings.defaultModel?.trim() || '';
 
     const normalizedBaseUrl = lanProviderBaseUrl(lanProvider);
     const apiKey = lanProvider.apiKey || 'llama.cpp';
@@ -837,8 +844,10 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
       apiKey: nextSettings.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
     },
     lanProviders: nextSettings.lanProviders ?? appSettings.lanProviders,
+    defaultModel: nextSettings.defaultModel?.trim() || appSettings.defaultModel,
   };
   saveSettings();
+  mainWindow?.webContents.send('settings:changed', appSettings);
   return appSettings;
 });
 
@@ -849,6 +858,7 @@ ipcMain.handle('models:fetch', (_event, config: { baseUrl: string; apiKey?: stri
 ipcMain.handle('lan:add-provider', (_event, provider: LanProvider) => {
   appSettings.lanProviders.push(provider);
   saveSettings();
+  mainWindow?.webContents.send('settings:changed', appSettings);
   return appSettings;
 });
 
@@ -859,6 +869,7 @@ ipcMain.handle('lan:remove-provider', (_event, id: string) => {
   }
   saveSettings();
   return appSettings;
+  mainWindow?.webContents.send('settings:changed', appSettings);
 });
 
 ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
@@ -866,6 +877,7 @@ ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
   if (idx >= 0) {
     appSettings.lanProviders[idx] = updated;
     saveSettings();
+    mainWindow?.webContents.send('settings:changed', appSettings);
   }
   return appSettings;
 });
@@ -891,6 +903,7 @@ ipcMain.handle('lan:discover', async () => {
       }
     }
     saveSettings();
+    mainWindow?.webContents.send('settings:changed', appSettings);
     return { found: discovered.length, added, providers: appSettings.lanProviders };
   } catch (error: unknown) {
     console.error('LAN discovery failed:', error);

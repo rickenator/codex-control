@@ -60,6 +60,7 @@ export default function App() {
     id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
   });
   const [discovering, setDiscovering] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -118,12 +119,14 @@ export default function App() {
       });
     });
 
+    const unsubscribeSettings = window.codexApi.onSettingsChanged((s) => setSettings(s));
     const unsubscribeSessions = window.codexApi.onSessionsUpdated(setSessions);
 
     return () => {
       unsubscribeRecovery();
       unsubscribeApproval();
       unsubscribeSessions();
+      unsubscribeSettings();
     };
   }, []);
 
@@ -406,10 +409,28 @@ export default function App() {
             : 'Start or select a session to continue'}
           </div>
         </div>
+        <button
+          className="codex-button codex-button-secondary"
+          onClick={() => setShowSettings(true)}
+          style={{ fontSize: 11, padding: "4px 10px", marginLeft: 8 }}
+          title="Launch settings"
+        >
+          ⚙ Settings
+        </button>
         <div className="codex-chip-list">
-          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Default Codex'} />
-          <Pill label="Model" value={settings.remoteLlamaCpp.model} />
-          <Pill label="Endpoint" value={settings.remoteLlamaCpp.baseUrl} />
+          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
+          <Pill label="Model" value={
+            settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.model :
+            settings.defaultProvider === "default" ? (settings.defaultModel || settings.remoteLlamaCpp.model) :
+            settings.defaultProvider === "gpt56" ? "gpt-5.6" :
+            settings.defaultProvider === "lan" ? (settings.lanProviders[0]?.model || "Not set") :
+            settings.remoteLlamaCpp.model
+          } />
+          <Pill label="Endpoint" value={
+            settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.baseUrl :
+            settings.defaultProvider === "lan" ? (settings.lanProviders[0] ? `${settings.lanProviders[0].host}:${settings.lanProviders[0].port}` : "Not set") :
+            "N/A"
+          } />
           {activeSession?.status && <Pill label="Session" value={activeSession.status} />}
         </div>
       </header>

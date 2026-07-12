@@ -85,6 +85,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
   const [selectedLanProviderId, setSelectedLanProviderId] = useState(() => settings.lanProviders[0]?.id || '');
+  const [defaultProviderModel, setDefaultProviderModel] = useState(settings.defaultModel || settings.remoteLlamaCpp.model);
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
@@ -205,11 +206,13 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         model: model.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
       } : undefined,
+      defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : undefined,
       selectedLanProviderId: provider === 'lan' ? selectedLanProviderId || undefined : undefined,
     });
     onSettingsChange({
       defaultProvider: provider,
       remoteLlamaCpp: { baseUrl, model, apiKey },
+      defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : undefined,
       lanProviders: settings.lanProviders || [],
     });
     setRepository('');
@@ -222,6 +225,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     setBaseUrl(settings.remoteLlamaCpp.baseUrl);
     setModel(settings.remoteLlamaCpp.model);
     setApiKey(settings.remoteLlamaCpp.apiKey);
+    setDefaultProviderModel(settings.defaultModel || settings.remoteLlamaCpp.model);
     setSelectedLanProviderId((currentId) => {
       if (settings.lanProviders.some((lanProvider) => lanProvider.id === currentId)) {
         return currentId;
@@ -395,7 +399,24 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 )
               )}
               {provider === 'default' && (
-                <span style={{ color: '#8b949e' }}>Codex default</span>
+                <input
+                  type="text"
+                  value={defaultProviderModel}
+                  onChange={(e) => setDefaultProviderModel(e.target.value)}
+                  className="codex-input"
+                  style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
+                  placeholder="Enter model name (uses Codex default if empty)"
+                />
+              )}
+              {provider === 'gpt56' && (
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="codex-input"
+                  style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
+                  placeholder="Enter model name (default: gpt-5.6)"
+                />
               )}
               {(provider === 'remote_llamacpp' || provider === 'lan') && (
                 <button

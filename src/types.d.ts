@@ -17,6 +17,7 @@ interface CodexSettings {
     apiKey: string;
   };
   lanProviders: LanProviderConfig[];
+  defaultModel?: string;
 }
 
 interface CodexSettingsInput {
@@ -27,6 +28,7 @@ interface CodexSettingsInput {
     apiKey?: string;
   };
   lanProviders?: LanProviderConfig[];
+  defaultModel?: string;
 }
 
 
@@ -104,6 +106,7 @@ interface CodexAPI {
   onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => () => void;
   onApprovalProcessed: (callback: (result: { id: string; approved: boolean }) => void) => () => void;
   onNewSession: (callback: () => void) => () => void;
+  onSettingsChanged: (callback: (settings: CodexSettings) => void) => () => void;
   copyText: (text: string) => Promise<boolean>;
   requestNewSession: () => Promise<boolean>;
   fetchModels: (config: { baseUrl: string; apiKey?: string }) => Promise<Array<{ id: string; name?: string }>>;

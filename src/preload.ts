@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('codexApi', {
       model?: string;
       apiKey?: string;
     };
+    defaultModel?: string;
     lanProviders?: Array<{
       id: string;
       name: string;
@@ -118,6 +119,11 @@ contextBridge.exposeInMainWorld('codexApi', {
     const handler = () => callback();
     ipcRenderer.on('ui:new-session', handler);
     return () => ipcRenderer.removeListener('ui:new-session', handler);
+  },
+  onSettingsChanged: (callback: (settings: CodexSettings) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: CodexSettings) => callback(data);
+    ipcRenderer.on('settings:changed', handler);
+    return () => ipcRenderer.removeListener('settings:changed', handler);
   },
   lanAddProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) =>
     ipcRenderer.invoke('lan:add-provider', provider),
