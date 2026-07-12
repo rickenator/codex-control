@@ -33,6 +33,11 @@ interface SessionOptions {
   codexPath?: string;
   provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
   selectedLanProviderId?: string;
+  remoteLlamaCpp?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
   lanProvider?: {
     baseUrl?: string;
     model?: string;
@@ -478,9 +483,15 @@ function launchSession(
   const args = ['--no-alt-screen', '-C', repository];
   const env = { ...process.env };
   const resolvedRemote = {
-    baseUrl: options.lanProvider?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
-    model: options.lanProvider?.model?.trim() || appSettings.remoteLlamaCpp.model,
-    apiKey: options.lanProvider?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+    baseUrl: provider === 'remote_llamacpp'
+      ? options.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl
+      : '',
+    model: provider === 'remote_llamacpp'
+      ? options.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model
+      : '',
+    apiKey: provider === 'remote_llamacpp'
+      ? options.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey
+      : '',
   };
 
   if (provider === 'remote_llamacpp') {
@@ -616,7 +627,7 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
     repository: record.repository,
     branch,
     provider: record.provider,
-    lanProvider: record.provider === 'remote_llamacpp'
+    remoteLlamaCpp: record.provider === 'remote_llamacpp'
       ? {
           baseUrl: record.baseUrl,
           model: record.model,

@@ -134,17 +134,7 @@ export default function App() {
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
 
-  const handleStartSession = async (options: {
-    repository?: string;
-    branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
-    selectedLanProviderId?: string;
-    lanProvider?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-  }) => {
+  const handleStartSession = async (options: Parameters<CodexAPI['startSession']>[0]) => {
     try {
       const result = await window.codexApi.startSession(options);
       const updated = await window.codexApi.listSessions();
