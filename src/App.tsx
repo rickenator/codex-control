@@ -82,8 +82,8 @@ export default function App() {
     id: '', name: '', host: '', port: '8081', model: '', apiKey: '',
   });
   const [discovering, setDiscovering] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
+  const [showLanSettings, setShowLanSettings] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -553,6 +553,7 @@ export default function App() {
         >
           ⚙ Settings
         </button>
+        <div className="codex-chip-list">
           <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
           <Pill label="Model" value={
             activeSession?.model ||
