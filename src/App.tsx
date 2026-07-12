@@ -154,6 +154,12 @@ export default function App() {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
+      // Escape closes modals
+      if (event.key === 'Escape') {
+        if (showSettings) { setShowSettings(false); return; }
+        if (showLanSettings) { setShowLanSettings(false); return; }
+      }
+      // Ctrl/Cmd shortcuts
       if (!event.metaKey && !event.ctrlKey) return;
       if (event.key === '1') {
         setActiveTab('terminal');
@@ -164,12 +170,16 @@ export default function App() {
       } else if (event.key === '3') {
         setActiveTab('approvals');
         event.preventDefault();
+      } else if (event.key.toLowerCase() === 'n') {
+        // Ctrl+N opens new session drawer
+        void handleRequestNewSession();
+        event.preventDefault();
       }
     };
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, []);
+  }, [showSettings, showLanSettings]);
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
 
@@ -218,6 +228,24 @@ export default function App() {
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not stop session: ${(e as Error).message}` });
     }
+  };
+
+  const handleStopAllSessions = async () => {
+    const runningSessions = sessions.filter(s => s.status === 'running');
+    if (runningSessions.length === 0) {
+      setNotice({ kind: 'info', message: 'No running sessions to stop.' });
+      return;
+    }
+    let stopped = 0;
+    for (const session of runningSessions) {
+      try {
+        const result = await window.codexApi.stopSession(session.id);
+        if (result) stopped++;
+      } catch { /* skip failed stops */ }
+    }
+    const updated = await window.codexApi.listSessions();
+    setSessions(updated);
+    setNotice({ kind: 'info', message: `Stopped ${stopped} of ${runningSessions.length} session(s).` });
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -411,6 +439,16 @@ export default function App() {
             : 'Start or select a session to continue'}
           </div>
         </div>
+        {sessions.some(s => s.status === 'running') && (
+          <button
+            className="codex-button codex-button-danger"
+            onClick={() => void handleStopAllSessions()}
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            title="Stop all running sessions"
+          >
+            Stop All ({sessions.filter(s => s.status === 'running').length})
+          </button>
+        )}
         <button
           className="codex-button codex-button-secondary"
           onClick={() => setShowSettings(true)}
@@ -434,6 +472,12 @@ export default function App() {
             settings.defaultProvider === "lan" ? (settings.lanProviders[0] ? `${settings.lanProviders[0].host}:${settings.lanProviders[0].port}` : "Not set") :
             "N/A"
           } />
+          {pendingApprovalCount > 0 && (
+            <div className="codex-chip" style={{ borderColor: '#d2992266', background: 'rgba(210, 153, 34, 0.1)' }}>
+              <span className="codex-chip-label">⏳</span>
+              <span className="codex-chip-value" style={{ color: '#d29922', fontWeight: 700 }}>{pendingApprovalCount}</span>
+            </div>
+          )}
           {activeSession?.status && <Pill label="Session" value={activeSession.status} />}
         </div>
       </header>

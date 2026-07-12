@@ -14,6 +14,14 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: path.resolve(__dirname, 'src/index.html'),
+      output: {
+        manualChunks: {
+          // Split xterm (large dependency) into its own chunk
+          'vendor-xterm': ['xterm', 'xterm-addon-fit', 'xterm-addon-web-links'],
+          // Split React into its own chunk for better caching
+          'vendor-react': ['react', 'react-dom'],
+        },
+      },
     },
   },
   resolve: {

@@ -727,7 +727,18 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="codex-list-item-title" title={workspacePath || 'Untitled'}>
+                <div className="codex-list-item-title" title={workspacePath || 'Untitled'} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {s.status === 'running' && (
+                    <span style={{ 
+                      display: 'inline-block', 
+                      width: 6, 
+                      height: 6, 
+                      borderRadius: '50%', 
+                      background: '#58a6ff',
+                      boxShadow: '0 0 6px rgba(88, 166, 255, 0.6)',
+                      animation: 'pulse 2s ease-in-out infinite'
+                    }} />
+                  )}
                   {workspaceLabel}
                 </div>
                 <div className="codex-list-item-subtitle" style={{ marginTop: 5 }}>
