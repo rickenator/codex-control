@@ -62,7 +62,7 @@ export default function App() {
       .then(setSessions)
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load sessions: ${error.message}` }));
     window.codexApi.getSettings()
-      .then((loaded: any) => setSettings(loaded))
+      .then(setSettings)
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load settings: ${error.message}` }));
   }, []);
 
@@ -236,8 +236,8 @@ export default function App() {
   const handleSettingsChange = async (nextSettings: AppSettings) => {
     try {
       setSettings(nextSettings);
-      const saved = await window.codexApi.updateSettings(nextSettings as any);
-      setSettings(saved as any);
+      const saved = await window.codexApi.updateSettings(nextSettings);
+      setSettings(saved);
       setNotice({ kind: 'success', message: 'Launch profile saved.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not save settings: ${(e as Error).message}` });
