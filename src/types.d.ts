@@ -1,21 +1,23 @@
+interface SessionStartOptions {
+  repository?: string;
+  branch?: string;
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  remoteLlamaCpp?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
+  selectedLanProviderId?: string;
+  lanProvider?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
+}
+
 interface CodexAPI {
   // Sessions
-  startSession: (opts: {
-    repository?: string;
-    branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
-    remoteLlamaCpp?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-    selectedLanProviderId?: string;
-    lanProvider?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-  }) => Promise<{ sessionId: string; pid: number }>;
+  startSession: (opts: SessionStartOptions) => Promise<{ sessionId: string; pid: number }>;
   stopSession: (sessionId: string) => Promise<boolean>;
   listSessions: () => Promise<SessionRecord[]>;
   getSessionEvents: (sessionId: string) => Promise<CodexEvent[]>;

@@ -2,22 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('codexApi', {
   // Sessions
-  startSession: (opts: {
-    repository?: string;
-    branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
-    remoteLlamaCpp?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-    selectedLanProviderId?: string;
-    lanProvider?: {
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-    };
-  }) =>
+  startSession: (opts: SessionStartOptions) =>
     ipcRenderer.invoke('session:start', opts),
   stopSession: (sessionId: string) =>
     ipcRenderer.invoke('session:stop', sessionId),

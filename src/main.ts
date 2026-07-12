@@ -27,22 +27,8 @@ interface LanProvider {
   apiKey: string;
 }
 
-interface SessionOptions {
-  repository?: string;
-  branch?: string;
+interface SessionOptions extends SessionStartOptions {
   codexPath?: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
-  selectedLanProviderId?: string;
-  remoteLlamaCpp?: {
-    baseUrl?: string;
-    model?: string;
-    apiKey?: string;
-  };
-  lanProvider?: {
-    baseUrl?: string;
-    model?: string;
-    apiKey?: string;
-  };
 }
 
 interface SessionRecord {
