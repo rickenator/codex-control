@@ -166,16 +166,29 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
     }
   };
 
-  // Parse diff content into colored lines for display
+  // Parse diff content into colored lines with line numbers for display
   const renderDiffLines = (content: string) => {
     const lines = content.split('\n');
+    let oldLine = 0;
+    let newLine = 0;
     return lines.map((line, idx) => {
-      if (line.startsWith('+') && !line.startsWith('+++')) {
-        return <span key={idx} style={{ color: '#3fb950' }}>{line}\n</span>;
+      if (line.startsWith('@@')) {
+        // Parse hunk header to get starting line numbers
+        const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match) {
+          oldLine = parseInt(match[1], 10);
+          newLine = parseInt(match[2], 10);
+        }
+        return <span key={idx} style={{ color: '#58a6ff', fontWeight: 600 }}>{line}\n</span>;
+      } else if (line.startsWith('+') && !line.startsWith('+++')) {
+        const ln = newLine++;
+        return <span key={idx} style={{ background: 'rgba(63, 185, 80, 0.12)', color: '#3fb950' }}><span style={{ color: '#3fb950', opacity: 0.6, marginRight: 8, userSelect: 'none', minWidth: 24, display: 'inline-block', textAlign: 'right' }}>{ln}</span>{line}\n</span>;
       } else if (line.startsWith('-') && !line.startsWith('---')) {
-        return <span key={idx} style={{ color: '#f85149' }}>{line}\n</span>;
+        const ln = oldLine++;
+        return <span key={idx} style={{ background: 'rgba(248, 81, 73, 0.12)', color: '#f85149' }}><span style={{ color: '#f85149', opacity: 0.6, marginRight: 8, userSelect: 'none', minWidth: 24, display: 'inline-block', textAlign: 'right' }}>{ln}</span>{line}\n</span>;
       } else {
-        return <span key={idx} style={{ color: '#8b949e' }}>{line}\n</span>;
+        oldLine++; newLine++;
+        return <span key={idx} style={{ color: '#6e7681' }}><span style={{ opacity: 0.4, marginRight: 8, userSelect: 'none', minWidth: 24, display: 'inline-block', textAlign: 'right' }}>{oldLine}</span>{line}\n</span>;
       }
     });
   };
@@ -245,29 +258,37 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
       <div style={{ display: 'flex', height: 'calc(100% - 41px)' }}>
         {/* File list */}
         <div className="codex-diff-list">
-          {statusEntries.map(entry => (
-            <div
-              key={entry.path}
-              onClick={() => loadHunks(entry.path)}
-              style={{
-                padding: '8px 12px', cursor: 'pointer',
-                background: selectedPath === entry.path ? 'rgba(88, 166, 255, 0.10)' : 'transparent',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              <span style={{ fontSize: 11, color: statusColors[entry.x] || '#8b949e', fontWeight: 700, width: 18, textAlign: 'center' }}>
-                {statusIcons[entry.x] || entry.x}
-              </span>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12, color: selectedPath === entry.path ? '#58a6ff' : '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {fileLabel(entry.path)}
-                </div>
-                <div style={{ fontSize: 10, color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {entry.path}
+          {statusEntries.map(entry => {
+            const changes = selectedPath === entry.path && hunks.length > 0
+              ? hunks.reduce((acc, h) => {
+                  const c = countChanges(h.content);
+                  return { additions: acc.additions + c.additions, deletions: acc.deletions + c.deletions };
+                }, { additions: 0, deletions: 0 })
+              : null;
+            return (
+              <div
+                key={entry.path}
+                onClick={() => loadHunks(entry.path)}
+                style={{
+                  padding: '8px 12px', cursor: 'pointer',
+                  background: selectedPath === entry.path ? 'rgba(88, 166, 255, 0.10)' : 'transparent',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 11, color: statusColors[entry.x] || '#8b949e', fontWeight: 700, width: 18, textAlign: 'center' }}>
+                  {statusIcons[entry.x] || entry.x}
+                </span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 12, color: selectedPath === entry.path ? '#58a6ff' : '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {fileLabel(entry.path)}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {changes ? `${changes.additions}+ ${changes.deletions}-` : entry.path}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Diff content with per-hunk controls */}
@@ -330,14 +351,22 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
                     {/* Hunk header */}
                     <div style={{
                       padding: '6px 16px', fontSize: 11, color: statusColor,
-                      background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: isAccepted ? 'rgba(63, 185, 80, 0.08)' : isRejected ? 'rgba(248, 81, 73, 0.08)' : 'rgba(88, 166, 255, 0.06)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                     }}>
-                      <span>{hunk.header}</span>
+                      <span style={{ fontWeight: 500 }}>{hunk.header}</span>
                       {statusLabel && <span style={{ fontWeight: 600 }}>{statusLabel}</span>}
                     </div>
 
                     {/* Hunk content */}
-                    <pre className="codex-code-block">
+                    <pre className="codex-code-block" style={{
+                      background: '#0d1117',
+                      margin: 0,
+                      padding: '8px 0',
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                    }}>
                       {renderDiffLines(hunk.content)}
                     </pre>
 
@@ -364,6 +393,16 @@ export default function DiffViewer({ sessionId, repository, onCopyPath, onOpenPa
 function fileLabel(filePath: string) {
   const segments = filePath.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] || filePath;
+}
+
+function countChanges(content: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of content.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+  }
+  return { additions, deletions };
 }
 
 function repositoryLabelFromPath(repository?: string) {

@@ -8,9 +8,10 @@ interface Props {
   compact?: boolean;
   onCopyTranscript: (text: string, label: string) => void;
   onRequestNewSession: () => Promise<void>;
+  onClearTerminal?: () => void;
 }
 
-export default function TerminalPane({ sessionId, compact = false, onCopyTranscript, onRequestNewSession }: Props) {
+export default function TerminalPane({ sessionId, compact = false, onCopyTranscript, onRequestNewSession, onClearTerminal }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,15 +71,26 @@ export default function TerminalPane({ sessionId, compact = false, onCopyTranscr
             <span style={{ color: '#f0f6fc', fontWeight: 600 }}>Terminal</span>
             <span>Live command stream for this session</span>
           </div>
-          <button
-            className="codex-button codex-button-secondary"
-            onClick={async () => {
-              const buffer = await window.codexApi.getTerminalBuffer(sessionId);
-              onCopyTranscript(buffer, 'Terminal transcript');
-            }}
-          >
-            Copy transcript
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {onClearTerminal && (
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => onClearTerminal()}
+                style={{ fontSize: 10, padding: '4px 8px' }}
+              >
+                Clear
+              </button>
+            )}
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={async () => {
+                const buffer = await window.codexApi.getTerminalBuffer(sessionId);
+                onCopyTranscript(buffer, 'Terminal transcript');
+              }}
+            >
+              Copy transcript
+            </button>
+          </div>
         </div>
       )}
       <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>

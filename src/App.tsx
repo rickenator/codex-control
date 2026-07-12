@@ -192,6 +192,23 @@ export default function App() {
   }, [showSettings, showLanSettings]);
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
+  const [terminalBuffer, setTerminalBuffer] = useState('');
+
+  useEffect(() => {
+    if (!selectedSession) return;
+    window.codexApi.getTerminalBuffer(selectedSession).then(setTerminalBuffer);
+    const unsubscribe = window.codexApi.onTerminalOutput(({ sessionId: sid, data }) => {
+      if (sid === selectedSession) setTerminalBuffer(prev => prev + data);
+    });
+    return () => unsubscribe();
+  }, [selectedSession]);
+
+  const handleClearTerminal = async () => {
+    // Clear the terminal buffer by sending a clear sequence
+    if (!selectedSession) return;
+    await window.codexApi.sendInput(selectedSession, '\x0c'); // Ctrl+L clears terminal
+    setTerminalBuffer('');
+  };
 
   const handleStartSession = async (options: {
     repository?: string;
