@@ -11,7 +11,18 @@ interface Session {
   baseUrl?: string;
 }
 
-type NewSessionOptions = Parameters<CodexAPI['startSession']>[0];
+type NewSessionOptions = {
+  repository?: string;
+  branch?: string;
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  model?: string;
+  baseUrl?: string;
+  remoteLlamaCpp?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
+};
 
 type LanProviderConfig = {  id: string;  name: string;  host: string;  port: number;  model: string;  apiKey: string;};
 interface Props {

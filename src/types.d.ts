@@ -1,23 +1,21 @@
-interface SessionStartOptions {
-  repository?: string;
-  branch?: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
-  remoteLlamaCpp?: {
-    baseUrl?: string;
-    model?: string;
-    apiKey?: string;
-  };
-  selectedLanProviderId?: string;
-  lanProvider?: {
-    baseUrl?: string;
-    model?: string;
-    apiKey?: string;
-  };
-}
-
 interface CodexAPI {
   // Sessions
-  startSession: (opts: SessionStartOptions) => Promise<{ sessionId: string; pid: number }>;
+  startSession: (opts: {
+    repository?: string;
+    branch?: string;
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+    selectedLanProviderId?: string;
+    lanProvider?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+  }) => Promise<{ sessionId: string; pid: number }>;
   stopSession: (sessionId: string) => Promise<boolean>;
   listSessions: () => Promise<SessionRecord[]>;
   getSessionEvents: (sessionId: string) => Promise<CodexEvent[]>;
@@ -26,7 +24,7 @@ interface CodexAPI {
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   reconnectSession: (sessionId: string) => Promise<boolean>;
   getSettings: () => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
@@ -34,14 +32,14 @@ interface CodexAPI {
     };
   }>;
   updateSettings: (settings: {
-    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
     };
   }) => Promise<{
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56';
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
