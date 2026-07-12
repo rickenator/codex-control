@@ -7,6 +7,7 @@ import type { IPty } from 'node-pty';
 const pty = require('node-pty') as typeof import('node-pty');
 
 type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
+type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
 
 interface SessionState {
   id: string;
@@ -31,7 +32,7 @@ interface SessionOptions {
   repository?: string;
   branch?: string;
   codexPath?: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  provider?: Provider;
   selectedLanProviderId?: string;
   lanProvider?: {
     baseUrl?: string;
@@ -44,7 +45,7 @@ interface SessionRecord {
   id: string;
   repository: string;
   branch: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  provider?: Provider;
   model?: string;
   baseUrl?: string;
   status: SessionStatus;
@@ -53,7 +54,7 @@ interface SessionRecord {
 }
 
 interface AppSettings {
-  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  defaultProvider: Provider;
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
@@ -98,6 +99,14 @@ const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
 const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
+
+function isProvider(value: unknown): value is Provider {
+  return value === 'default' || value === 'remote_llamacpp' || value === 'gpt56' || value === 'lan';
+}
+
+function normalizeProvider(value: unknown, fallback: Provider = appSettings.defaultProvider): Provider {
+  return isProvider(value) ? value : fallback;
+}
 
 function createWindow() {
   const windowState = loadWindowState();
@@ -208,7 +217,7 @@ function initSettings() {
   try {
     if (saved) {
       appSettings = {
-        defaultProvider: saved.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
+        defaultProvider: normalizeProvider(saved.defaultProvider),
         remoteLlamaCpp: {
           baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
           model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
@@ -470,7 +479,7 @@ function launchSession(
   sessionId: string,
   repository: string,
   branch: string,
-  provider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan',
+  provider: Provider,
   options: SessionOptions,
   isReconnect: boolean,
 ) {
@@ -647,7 +656,7 @@ ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(
 ipcMain.handle('settings:get', () => appSettings);
 ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
-    defaultProvider: nextSettings.defaultProvider === 'default' ? 'default' : 'remote_llamacpp',
+    defaultProvider: normalizeProvider(nextSettings.defaultProvider),
     remoteLlamaCpp: {
       baseUrl: nextSettings.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
       model: nextSettings.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
