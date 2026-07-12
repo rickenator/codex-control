@@ -563,7 +563,148 @@ export default function App() {
           <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6 profile active' : settings.defaultProvider === 'lan' ? 'LAN provider active' : 'Default Codex profile active'}</span>
           <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search · 1/2/3 tabs</span>
         </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {settings.lanProviders.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+              {settings.lanProviders.map(p => (
+                <div key={p.id} className="codex-chip" style={{ padding: '4px 8px', fontSize: 10 }}>
+                  <span className="codex-chip-label">{p.name}</span>
+                  <span className="codex-chip-value">{p.host}:{p.port}</span>
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => {
+                      setLanForm({ id: p.id, name: p.name, host: p.host, port: String(p.port), model: p.model, apiKey: p.apiKey });
+                      setShowLanSettings(true);
+                    }}
+                    style={{ padding: '2px 6px', fontSize: 10, marginLeft: 4 }}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => {
+                      window.codexApi.lanRemoveProvider(p.id);
+                      setSettings({ ...settings, lanProviders: settings.lanProviders.filter(lp => lp.id !== p.id) });
+                      setNotice({ kind: 'info', message: 'Provider removed' });
+                    }}
+                    style={{ padding: '2px 6px', fontSize: 10, marginLeft: 2, color: '#f85149' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            className="codex-button codex-button-secondary"
+            onClick={() => {
+              setLanForm({ id: '', name: '', host: '', port: '8081', model: '', apiKey: '' });
+              setShowLanSettings(true);
+            }}
+            style={{ fontSize: 11, padding: '4px 8px' }}
+          >
+            + Add Provider
+          </button>
+          <button
+            className="codex-button codex-button-secondary"
+            onClick={handleDiscoverLan}
+            disabled={discovering}
+            style={{ fontSize: 11, padding: '4px 8px', color: '#58a6ff' }}
+          >
+            {discovering ? 'Scanning...' : '🔍 Discover'}
+          </button>
+        </div>
       </footer>
+
+      {/* LAN Settings Modal */}
+      {showLanSettings && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }} onClick={() => setShowLanSettings(false)}>
+          <div style={{
+            background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
+            padding: 24, width: 480, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#f0f6fc' }}>
+              {lanForm.id ? 'Edit LAN Provider' : 'Add LAN Provider'}
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <input
+                type="text"
+                placeholder="Name (e.g., Godzilla)"
+                value={lanForm.name}
+                onChange={e => setLanForm({ ...lanForm, name: e.target.value })}
+                className="codex-input"
+              />
+              <input
+                type="text"
+                placeholder="Host (e.g., 192.168.1.243)"
+                value={lanForm.host}
+                onChange={e => setLanForm({ ...lanForm, host: e.target.value })}
+                className="codex-input"
+              />
+              <input
+                type="number"
+                placeholder="Port (e.g., 8081)"
+                value={lanForm.port}
+                onChange={e => setLanForm({ ...lanForm, port: e.target.value })}
+                className="codex-input"
+              />
+              <input
+                type="text"
+                placeholder="Model (optional)"
+                value={lanForm.model}
+                onChange={e => setLanForm({ ...lanForm, model: e.target.value })}
+                className="codex-input"
+              />
+              <input
+                type="password"
+                placeholder="API Key (optional)"
+                value={lanForm.apiKey}
+                onChange={e => setLanForm({ ...lanForm, apiKey: e.target.value })}
+                className="codex-input"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => setShowLanSettings(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="codex-button codex-button-primary"
+                onClick={() => {
+                  if (!lanForm.host || !lanForm.port) {
+                    setNotice({ kind: 'error', message: 'Host and port are required' });
+                    return;
+                  }
+                  const provider = {
+                    id: lanForm.id || `lan-${Date.now()}`,
+                    name: lanForm.name || `${lanForm.host}:${lanForm.port}`,
+                    host: lanForm.host,
+                    port: parseInt(lanForm.port, 10),
+                    model: lanForm.model,
+                    apiKey: lanForm.apiKey,
+                  };
+                  if (lanForm.id) {
+                    window.codexApi.lanUpdateProvider(provider);
+                  } else {
+                    window.codexApi.lanAddProvider(provider);
+                  }
+                  setSettings({ ...settings, lanProviders: [...settings.lanProviders, provider] });
+                  setShowLanSettings(false);
+                  setLanForm({ id: '', name: '', host: '', port: '8081', model: '', apiKey: '' });
+                  setNotice({ kind: 'success', message: 'LAN provider saved' });
+                }}
+              >
+                {lanForm.id ? 'Update' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
