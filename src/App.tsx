@@ -73,6 +73,7 @@ export default function App() {
   });
   const [discovering, setDiscovering] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [testingConnection, setTestingConnection] = useState<string | null>(null);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -227,16 +228,33 @@ export default function App() {
   const handleStartSession = async (options: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
     selectedLanProviderId?: string;
     lanProvider?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
     };
+    remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+    ollama?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+    defaultModel?: string;
   }) => {
     try {
-      const result = await window.codexApi.startSession(options);
+      const fullOptions = {
+        ...options,
+        remoteLlamaCpp: options.remoteLlamaCpp || settings.remoteLlamaCpp,
+        ollama: options.ollama || settings.ollama,
+        defaultModel: options.defaultModel || settings.defaultModel,
+      };
+      const result = await window.codexApi.startSession(fullOptions);
       const updated = await window.codexApi.listSessions();
       setSessions(updated);
       setSelectedSession(result.sessionId);
@@ -347,6 +365,24 @@ export default function App() {
       setNotice({ kind: 'info', message: 'Approval rejected.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not reject command: ${(e as Error).message}` });
+    }
+  };
+
+  const handleTestConnection = async (providerType: 'remote_llamacpp' | 'ollama') => {
+    setTestingConnection(providerType);
+    try {
+      const config = providerType === 'remote_llamacpp'
+        ? { baseUrl: settings.remoteLlamaCpp.baseUrl, apiKey: settings.remoteLlamaCpp.apiKey || 'llama.cpp', model: settings.remoteLlamaCpp.model }
+        : { baseUrl: settings.ollama.baseUrl, apiKey: settings.ollama.apiKey || 'ollama', model: settings.ollama.model };
+      const result = await window.codexApi.testRemoteLlamaCpp(config);
+      setNotice({
+        kind: result.ok ? 'success' : 'error',
+        message: `${providerType === 'remote_llamacpp' ? 'Remote llama.cpp' : 'Ollama'}: ${result.message}`,
+      });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Connection test failed: ${(e as Error).message}` });
+    } finally {
+      setTestingConnection(null);
     }
   };
 
@@ -872,7 +908,17 @@ export default function App() {
 
               {/* Ollama Settings */}
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
-                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600, marginBottom: 8, display: 'block' }}>Ollama</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Ollama (local)</label>
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => handleTestConnection('ollama')}
+                    disabled={testingConnection === 'ollama' || !settings.ollama.baseUrl}
+                    style={{ fontSize: 10, padding: '3px 8px' }}
+                  >
+                    {testingConnection === 'ollama' ? 'Testing...' : 'Test'}
+                  </button>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input
                     type="text"
@@ -900,7 +946,17 @@ export default function App() {
 
               {/* Remote llama.cpp Settings */}
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
-                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600, marginBottom: 8, display: 'block' }}>Remote llama.cpp</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Remote llama.cpp</label>
+                  <button
+                    className="codex-button codex-button-secondary"
+                    onClick={() => handleTestConnection('remote_llamacpp')}
+                    disabled={testingConnection === 'remote_llamacpp' || !settings.remoteLlamaCpp.baseUrl}
+                    style={{ fontSize: 10, padding: '3px 8px' }}
+                  >
+                    {testingConnection === 'remote_llamacpp' ? 'Testing...' : 'Test'}
+                  </button>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input
                     type="text"
@@ -911,14 +967,14 @@ export default function App() {
                   />
                   <input
                     type="text"
-                    placeholder="Model"
+                    placeholder="Model (e.g., unsloth/Qwen3.6-35B-A3B-GGUF)"
                     value={settings.remoteLlamaCpp.model}
                     onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, model: e.target.value } })}
                     className="codex-input"
                   />
                   <input
                     type="password"
-                    placeholder="API Key"
+                    placeholder="API Key (optional)"
                     value={settings.remoteLlamaCpp.apiKey}
                     onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, apiKey: e.target.value } })}
                     className="codex-input"
@@ -941,10 +997,24 @@ export default function App() {
                 {settings.lanProviders.length === 0 ? (
                   <span style={{ fontSize: 12, color: '#8b949e' }}>No LAN providers configured</span>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {settings.lanProviders.map(p => (
-                      <div key={p.id} style={{ fontSize: 12, color: '#f0f6fc', padding: '4px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 4 }}>
-                        {p.name || p.host}:{p.port} {p.model ? `(${p.model})` : ''}
+                      <div key={p.id} style={{ fontSize: 12, color: '#f0f6fc', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600 }}>{p.name || p.host}:{p.port}</span>
+                          <button
+                            className="codex-button codex-button-secondary"
+                            onClick={() => handleTestConnection('remote_llamacpp')}
+                            disabled={testingConnection !== null}
+                            style={{ fontSize: 10, padding: '2px 6px' }}
+                            title={`Test ${p.name || p.host}`}
+                          >
+                            Test
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#8b949e' }}>
+                          {p.host}:{p.port} {p.model ? `· ${p.model}` : '· no model set'}
+                        </div>
                       </div>
                     ))}
                   </div>

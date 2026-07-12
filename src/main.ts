@@ -41,6 +41,11 @@ export interface SessionOptions {
     model?: string;
     apiKey?: string;
   };
+  ollama?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
   lanProvider?: {
     baseUrl?: string;
     model?: string;
@@ -703,7 +708,7 @@ function launchSession(
     }
   }
   if (provider === 'ollama') {
-    const ollamaModel = options.remoteLlamaCpp?.model?.trim() || appSettings.ollama.model;
+    const ollamaModel = options.ollama?.model?.trim() || appSettings.ollama.model;
     const ollamaBaseUrl = normalizeBaseUrl(appSettings.ollama.baseUrl);
 
     env.OPENAI_BASE_URL = ollamaBaseUrl;
@@ -777,7 +782,7 @@ function launchSession(
     model: provider === 'remote_llamacpp' ? resolvedRemote.model : 
            provider === 'lan' ? (getLanProvider(options.selectedLanProviderId)?.model.trim() || appSettings.defaultModel?.trim()) :
            provider === 'default' ? (options.defaultModel?.trim() || appSettings.defaultModel?.trim()) :
-           provider === 'ollama' ? (options.remoteLlamaCpp?.model?.trim() || appSettings.ollama.model) :
+           provider === 'ollama' ? (options.ollama?.model?.trim() || appSettings.ollama.model) :
            provider === 'gpt56' ? 'gpt-5.6' :
            undefined,
     baseUrl: provider === 'remote_llamacpp'

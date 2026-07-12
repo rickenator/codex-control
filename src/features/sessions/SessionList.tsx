@@ -43,6 +43,11 @@ type NewSessionOptions = {
     model?: string;
     apiKey?: string;
   };
+  ollama?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
   selectedLanProviderId?: string;
   defaultModel?: string;
 };
@@ -235,14 +240,15 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       repository: nextRepository || undefined,
       branch: branch.trim() || undefined,
       provider,
-      remoteLlamaCpp: provider === 'ollama' ? {
-        baseUrl: settings.ollama.baseUrl,
-        model: model.trim() || undefined,
-        apiKey: settings.ollama.apiKey || undefined,
-      } : provider === 'remote_llamacpp' ? {
+      remoteLlamaCpp: provider === 'remote_llamacpp' ? {
         baseUrl: baseUrl.trim() || undefined,
         model: model.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
+      } : undefined,
+      ollama: provider === 'ollama' ? {
+        baseUrl: settings.ollama.baseUrl,
+        model: model.trim() || settings.ollama.model || undefined,
+        apiKey: settings.ollama.apiKey || undefined,
       } : undefined,
       defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : undefined,
       selectedLanProviderId: provider === 'lan' ? selectedLanProviderId || undefined : undefined,
@@ -272,6 +278,28 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       return settings.lanProviders[0]?.id || '';
     });
   }, [settings.defaultProvider, settings.remoteLlamaCpp.baseUrl, settings.remoteLlamaCpp.model, settings.remoteLlamaCpp.apiKey, settings.defaultModel, settings.lanProviders]);
+
+  // Reset provider-specific fields when provider changes
+  useEffect(() => {
+    if (provider === 'remote_llamacpp') {
+      setBaseUrl(settings.remoteLlamaCpp.baseUrl);
+      setModel(settings.remoteLlamaCpp.model);
+      setApiKey(settings.remoteLlamaCpp.apiKey);
+    } else if (provider === 'ollama') {
+      setModel(settings.ollama.model);
+      setApiKey(settings.ollama.apiKey);
+    } else if (provider === 'default') {
+      setDefaultProviderModel(settings.defaultModel || settings.remoteLlamaCpp.model);
+    } else if (provider === 'gpt56') {
+      setModel('gpt-5.6');
+    } else if (provider === 'lan') {
+      const firstLan = settings.lanProviders[0];
+      if (firstLan) {
+        setSelectedLanProviderId(firstLan.id);
+        setModel(firstLan.model || '');
+      }
+    }
+  }, [provider, settings.remoteLlamaCpp, settings.ollama, settings.defaultModel, settings.lanProviders]);
 
   useEffect(() => {
     const unsubscribe = window.codexApi.onNewSession(() => {
