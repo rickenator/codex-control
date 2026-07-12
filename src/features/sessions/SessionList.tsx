@@ -27,7 +27,7 @@ interface Session {
   branch?: string;
   status: string;
   updated_at: number;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
   model?: string;
   baseUrl?: string;
 }
@@ -35,7 +35,7 @@ interface Session {
 type NewSessionOptions = {
   repository?: string;
   branch?: string;
-  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
   model?: string;
   baseUrl?: string;
   remoteLlamaCpp?: {
@@ -69,7 +69,12 @@ interface Props {
   onStopSession: (sessionId: string) => Promise<void>;
   onDeleteSession: (sessionId: string) => Promise<void>;
   settings: {
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+    ollama: {
+      baseUrl: string;
+      model: string;
+      apiKey: string;
+    };
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
@@ -79,7 +84,12 @@ interface Props {
     defaultModel?: string;
   };
   onSettingsChange: (settings: {
-    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+    ollama: {
+      baseUrl: string;
+      model: string;
+      apiKey: string;
+    };
     remoteLlamaCpp: {
       baseUrl: string;
       model: string;
@@ -104,7 +114,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [showNewSession, setShowNewSession] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
-  const [provider, setProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan'>(settings.defaultProvider);
+  const [provider, setProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama'>(settings.defaultProvider);
   const [baseUrl, setBaseUrl] = useState(settings.remoteLlamaCpp.baseUrl);
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
@@ -225,7 +235,11 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       repository: nextRepository || undefined,
       branch: branch.trim() || undefined,
       provider,
-      remoteLlamaCpp: provider === 'remote_llamacpp' ? {
+      remoteLlamaCpp: provider === 'ollama' ? {
+        baseUrl: settings.ollama.baseUrl,
+        model: model.trim() || undefined,
+        apiKey: settings.ollama.apiKey || undefined,
+      } : provider === 'remote_llamacpp' ? {
         baseUrl: baseUrl.trim() || undefined,
         model: model.trim() || undefined,
         apiKey: apiKey.trim() || undefined,
@@ -235,6 +249,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     });
     onSettingsChange({
       defaultProvider: provider,
+      ollama: { baseUrl: settings.ollama.baseUrl, model: settings.ollama.model, apiKey: settings.ollama.apiKey },
       remoteLlamaCpp: { baseUrl, model, apiKey },
       defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : (settings.defaultModel || undefined),
       lanProviders: settings.lanProviders || [],
@@ -339,12 +354,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
               <span style={{ fontSize: 12, color: '#f0f6fc', fontWeight: 600 }}>Launch profile</span>
               <span style={{ fontSize: 11, color: '#8b949e' }}>
-                Saved default: {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN Provider' : 'Default Codex'}
+                Saved default: {settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN Provider' : 'Default Codex'}
               </span>
             </div>
             <div className="codex-chip" style={{ padding: '4px 8px' }}>
               <span className="codex-chip-label">Mode</span>
-              <span className="codex-chip-value">{provider === 'remote_llamacpp' ? 'Remote llama.cpp' : provider === 'gpt56' ? 'GPT-5.6' : provider === 'lan' ? 'LAN Provider' : 'Default Codex'}</span>
+              <span className="codex-chip-value">{provider === 'remote_llamacpp' ? 'Remote llama.cpp' : provider === 'ollama' ? 'Ollama' : provider === 'gpt56' ? 'GPT-5.6' : provider === 'lan' ? 'LAN Provider' : 'Default Codex'}</span>
             </div>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
@@ -353,6 +368,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               aria-label="Save default launch profile"
               onClick={() => onSettingsChange({
                 defaultProvider: provider,
+                ollama: { baseUrl: settings.ollama.baseUrl, model: settings.ollama.model, apiKey: settings.ollama.apiKey },
                 remoteLlamaCpp: { baseUrl, model, apiKey },
                 lanProviders: settings.lanProviders || [],
               })}
@@ -546,10 +562,46 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               style={{ marginBottom: 8 }}
             >
               <option value="remote_llamacpp">Remote llama.cpp</option>
+              <option value="ollama">Ollama (local)</option>
               <option value="default">Default Codex</option>
               <option value="gpt56">GPT-5.6</option>
               <option value="lan">LAN Provider</option>
             </select>
+                        {provider === 'ollama' && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Ollama base URL"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  className="codex-input"
+                  style={{ marginBottom: 4 }}
+                />
+                {modelsLoading ? (
+                  <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>Fetching models...</div>
+                ) : availableModels.length > 0 ? (
+                  <select
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    className="codex-select"
+                    style={{ marginBottom: 4 }}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Model name (or fetch from /v1/models)"
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    className="codex-input"
+                    style={{ marginBottom: 4 }}
+                  />
+                )}
+              </>
+            )}
             {provider === 'lan' && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: '#8b949e' }}>LAN provider:</span>

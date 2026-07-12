@@ -9,7 +9,7 @@ import type { IPty } from 'node-pty';
 const pty = require('node-pty') as typeof import('node-pty');
 
 type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
-type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
 
 interface SessionState {
   id: string;
@@ -63,6 +63,11 @@ interface SessionRecord {
 
 interface AppSettings {
   defaultProvider: Provider;
+  ollama: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
@@ -121,6 +126,11 @@ let settingsPath = '';
 let windowStatePath = '';
 let appSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
+  ollama: {
+    baseUrl: 'http://localhost:11434',
+    model: 'qwen2.5:32b-instruct-q4_K_M',
+    apiKey: '',
+  },
   remoteLlamaCpp: {
     baseUrl: 'http://192.168.1.243:8081',
     model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
@@ -135,7 +145,7 @@ const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
 
 function isProvider(value: unknown): value is Provider {
-  return value === 'default' || value === 'remote_llamacpp' || value === 'gpt56' || value === 'lan';
+  return value === 'default' || value === 'remote_llamacpp' || value === 'gpt56' || value === 'lan' || value === 'ollama';
 }
 
 function normalizeProvider(value: unknown, fallback: Provider = appSettings.defaultProvider): Provider {
@@ -347,6 +357,11 @@ function initSettings() {
     if (saved) {
       appSettings = {
         defaultProvider: normalizeProvider(saved.defaultProvider),
+        ollama: {
+          baseUrl: saved.ollama?.baseUrl?.trim() || appSettings.ollama.baseUrl,
+          model: saved.ollama?.model?.trim() || appSettings.ollama.model,
+          apiKey: saved.ollama?.apiKey?.trim() || appSettings.ollama.apiKey,
+        },
         remoteLlamaCpp: {
           baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
           model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
@@ -687,6 +702,25 @@ function launchSession(
       args.push('-c', `model=${quoteTomlString(defaultModel)}`);
     }
   }
+  if (provider === 'ollama') {
+    const ollamaModel = options.remoteLlamaCpp?.model?.trim() || appSettings.ollama.model;
+    const ollamaBaseUrl = normalizeBaseUrl(appSettings.ollama.baseUrl);
+
+    env.OPENAI_BASE_URL = ollamaBaseUrl;
+    env.OPENAI_API_BASE = ollamaBaseUrl;
+    env.OPENAI_API_KEY = appSettings.ollama.apiKey || 'ollama';
+    env.OPENAI_MODEL = ollamaModel;
+    env.CODEX_OSS_BASE_URL = ollamaBaseUrl;
+
+    args.push(
+      '-c', `model=${quoteTomlString(ollamaModel)}`,
+      '-c', 'model_provider="ollama"',
+      '-c', 'model_providers.ollama.name="Ollama"',
+      '-c', `model_providers.ollama.base_url=${quoteTomlString(ollamaBaseUrl)}`,
+      '-c', 'model_providers.ollama.wire_api="responses"',
+      '-c', 'model_providers.ollama.env_key="OPENAI_API_KEY"',
+    );
+  }
   if (provider === 'gpt56') {
     args.push('-m', 'gpt-5.6');
   }
@@ -743,11 +777,14 @@ function launchSession(
     model: provider === 'remote_llamacpp' ? resolvedRemote.model : 
            provider === 'lan' ? (getLanProvider(options.selectedLanProviderId)?.model.trim() || appSettings.defaultModel?.trim()) :
            provider === 'default' ? (options.defaultModel?.trim() || appSettings.defaultModel?.trim()) :
+           provider === 'ollama' ? (options.remoteLlamaCpp?.model?.trim() || appSettings.ollama.model) :
            provider === 'gpt56' ? 'gpt-5.6' :
            undefined,
     baseUrl: provider === 'remote_llamacpp'
       ? normalizeBaseUrl(resolvedRemote.baseUrl)
-      : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
+      : provider === 'ollama'
+        ? normalizeBaseUrl(appSettings.ollama.baseUrl)
+        : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
         ? lanProviderBaseUrl(getLanProvider(options.selectedLanProviderId)!)
         : undefined,
     status: 'running',
@@ -859,6 +896,11 @@ ipcMain.handle('system:check-providers', () => providerHealthChecks());
 ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
     defaultProvider: normalizeProvider(nextSettings.defaultProvider),
+    ollama: {
+      baseUrl: nextSettings.ollama?.baseUrl?.trim() || appSettings.ollama.baseUrl,
+      model: nextSettings.ollama?.model?.trim() || appSettings.ollama.model,
+      apiKey: nextSettings.ollama?.apiKey?.trim() || appSettings.ollama.apiKey,
+    },
     remoteLlamaCpp: {
       baseUrl: nextSettings.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
       model: nextSettings.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,

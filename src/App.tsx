@@ -17,7 +17,12 @@ type LanProviderConfig = {
 };
 
 type AppSettings = {
-  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+  ollama: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
@@ -34,6 +39,11 @@ type Notice = {
 
 const defaultSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
+  ollama: {
+    baseUrl: 'http://localhost:11434',
+    model: 'qwen2.5:32b-instruct-q4_K_M',
+    apiKey: '',
+  },
   remoteLlamaCpp: {
     baseUrl: 'http://192.168.1.243:8081',
     model: 'unsloth/Qwen3.6-35B-A3B-GGUF',
@@ -458,10 +468,11 @@ export default function App() {
           ⚙ Settings
         </button>
         <div className="codex-chip-list">
-          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
+          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
           <Pill label="Model" value={
             activeSession?.model ||
             settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.model :
+            settings.defaultProvider === "ollama" ? settings.ollama.model :
             settings.defaultProvider === "default" ? (settings.defaultModel || settings.remoteLlamaCpp.model) :
             settings.defaultProvider === "gpt56" ? "gpt-5.6" :
             settings.defaultProvider === "lan" ? (settings.lanProviders[0]?.model || "Not set") :
@@ -469,6 +480,7 @@ export default function App() {
           } />
           <Pill label="Endpoint" value={
             settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.baseUrl :
+            settings.defaultProvider === "ollama" ? settings.ollama.baseUrl :
             settings.defaultProvider === "lan" ? (settings.lanProviders[0] ? `${settings.lanProviders[0].host}:${settings.lanProviders[0].port}` : "Not set") :
             "N/A"
           } />
@@ -798,6 +810,7 @@ export default function App() {
                   style={{ width: '100%', fontSize: 12, padding: '6px 8px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
                 >
                   <option value="remote_llamacpp">Remote llama.cpp (godzilla)</option>
+                  <option value="ollama">Ollama (local)</option>
                   <option value="default">Default Codex</option>
                   <option value="gpt56">GPT-5.6</option>
                   <option value="lan">LAN Provider</option>
@@ -814,6 +827,35 @@ export default function App() {
                   className="codex-input"
                   placeholder="unsloth/Qwen3.6-35B-A3B-GGUF"
                 />
+              </div>
+
+
+              {/* Ollama Settings */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
+                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600, marginBottom: 8, display: 'block' }}>Ollama</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Base URL (e.g., http://localhost:11434)"
+                    value={settings.ollama.baseUrl}
+                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, baseUrl: e.target.value } })}
+                    className="codex-input"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Model (e.g., qwen2.5:32b-instruct-q4_K_M)"
+                    value={settings.ollama.model}
+                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, model: e.target.value } })}
+                    className="codex-input"
+                  />
+                  <input
+                    type="password"
+                    placeholder="API Key (optional)"
+                    value={settings.ollama.apiKey}
+                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, apiKey: e.target.value } })}
+                    className="codex-input"
+                  />
+                </div>
               </div>
 
               {/* Remote llama.cpp Settings */}

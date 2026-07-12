@@ -5,8 +5,13 @@ contextBridge.exposeInMainWorld('codexApi', {
   startSession: (opts: {
     repository?: string;
     branch?: string;
-    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    provider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
     remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+    ollama?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
@@ -39,7 +44,12 @@ contextBridge.exposeInMainWorld('codexApi', {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
   updateSettings: (settings: {
-    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+    defaultProvider?: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+    ollama?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
     remoteLlamaCpp?: {
       baseUrl?: string;
       model?: string;

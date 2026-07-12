@@ -1,4 +1,4 @@
-type CodexProvider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan';
+type CodexProvider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
 
 interface LanProviderConfig {
   id: string;
@@ -11,6 +11,11 @@ interface LanProviderConfig {
 
 interface CodexSettings {
   defaultProvider: CodexProvider;
+  ollama: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
   remoteLlamaCpp: {
     baseUrl: string;
     model: string;
@@ -22,6 +27,11 @@ interface CodexSettings {
 
 interface CodexSettingsInput {
   defaultProvider?: CodexProvider;
+  ollama?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
   remoteLlamaCpp?: {
     baseUrl?: string;
     model?: string;
