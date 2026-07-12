@@ -136,8 +136,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const selectedLanBaseUrl = selectedLanProvider ? `${selectedLanProvider.host}:${selectedLanProvider.port}` : '';
 
   const refreshModels = async () => {
-    if (provider !== 'remote_llamacpp' && provider !== 'lan') return;
-    const url = provider === 'lan' ? selectedLanBaseUrl : baseUrl.trim();
+    if (provider !== 'remote_llamacpp' && provider !== 'lan' && provider !== 'ollama') return;
+    const url = provider === 'lan' ? selectedLanBaseUrl : provider === 'ollama' ? settings.ollama.baseUrl : baseUrl.trim();
     if (!url) return;
     setModelsLoading(true);
     setModelsError(null);
@@ -157,13 +157,13 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [search, setSearch] = useState('');
   const [isDroppingWorkspace, setIsDroppingWorkspace] = useState(false);
   useEffect(() => {
-    if (provider !== 'remote_llamacpp' && provider !== 'lan') {
+    if (provider !== 'remote_llamacpp' && provider !== 'lan' && provider !== 'ollama') {
       setAvailableModels([]);
       setModelsError(null);
       return;
     }
     // Auto-fetch models when provider changes and we have a URL
-    const url = provider === 'lan' ? selectedLanBaseUrl : baseUrl.trim();
+    const url = provider === 'lan' ? selectedLanBaseUrl : provider === 'ollama' ? settings.ollama.baseUrl : baseUrl.trim();
     if (!url) {
       setAvailableModels([]);
       return;
@@ -186,7 +186,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
 
   // Reset model state when switching away from providers that use /v1/models
   useEffect(() => {
-    if (provider !== 'remote_llamacpp' && provider !== 'lan') {
+    if (provider !== 'remote_llamacpp' && provider !== 'lan' && provider !== 'ollama') {
       setAvailableModels([]);
       setModelsError(null);
     }
@@ -288,6 +288,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
     } else if (provider === 'ollama') {
       setModel(settings.ollama.model);
       setApiKey(settings.ollama.apiKey);
+      setBaseUrl(settings.ollama.baseUrl);
     } else if (provider === 'default') {
       setDefaultProviderModel(settings.defaultModel || settings.remoteLlamaCpp.model);
     } else if (provider === 'gpt56') {
@@ -414,7 +415,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             </button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <MiniRow label="Endpoint" value={provider === 'lan' ? selectedLanBaseUrl || 'No LAN providers configured' : baseUrl} />
+            <MiniRow label="Endpoint" value={provider === 'lan' ? selectedLanBaseUrl || 'No LAN providers configured' : provider === 'ollama' ? settings.ollama.baseUrl : baseUrl} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
               <span style={{ color: '#8b949e', minWidth: 40 }}>Model</span>
               {provider === 'remote_llamacpp' && (
@@ -497,7 +498,32 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                   )}
                 </select>
               )}
-              {(provider === 'remote_llamacpp' || provider === 'lan') && (
+              {provider === 'ollama' && (
+                modelsLoading ? (
+                  <span style={{ color: '#58a6ff' }}>Fetching...</span>
+                ) : availableModels.length > 0 ? (
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="codex-select"
+                    style={{ flex: 1, fontSize: 11, padding: '2px 4px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="codex-input"
+                    style={{ flex: 1, fontSize: 11, padding: '2px 4px' }}
+                    placeholder="Enter model name"
+                  />
+                )
+              )}
+              {(provider === 'remote_llamacpp' || provider === 'lan' || provider === 'ollama') && (
                 <button
                   onClick={() => refreshModels()}
                   disabled={modelsLoading}
@@ -585,7 +611,7 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
             <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#8b949e' }}>Provider</label>
             <select
               value={provider}
-              onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp' | 'gpt56' | 'lan')}
+              onChange={(event) => setProvider(event.target.value as 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama')}
               className="codex-select"
               style={{ marginBottom: 8 }}
             >
