@@ -27,3 +27,4 @@ Thumbs.db
 *.AppImage
 *.deb
 *.rpm
+__pycache__/
