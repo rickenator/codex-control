@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "A cross-platform desktop control plane for Codex-compatible agents.",
   "author": "Rick <rick@apex>",
+  "license": "Apache-2.0",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -71,7 +72,9 @@
     "files": [
       "dist/main.js",
       "dist/preload.js",
-      "dist/renderer/**/*"
+      "dist/renderer/**/*",
+      "LICENSE",
+      "NOTICE"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*.node"

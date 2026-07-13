@@ -99,4 +99,4 @@ consiglio/
 
 ## License
 
-Proprietary — do not distribute.
+Copyright 2026 Rick. Licensed under the [Apache License 2.0](LICENSE).
