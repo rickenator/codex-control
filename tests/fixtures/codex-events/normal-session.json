@@ -1,0 +1,58 @@
+[
+  {
+    "id": "evt_1720000001_abc123",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "system",
+    "content": "Started Codex in /home/rick/Projects/example",
+    "timestamp": 1720000001000
+  },
+  {
+    "id": "evt_1720000002_def456",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "prompt",
+    "content": "Add a new endpoint to the API that returns user stats.",
+    "timestamp": 1720000002000
+  },
+  {
+    "id": "evt_1720000003_ghi789",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "response",
+    "content": "I'll add a `/api/stats` endpoint. Let me start by examining the existing routes.",
+    "timestamp": 1720000003000
+  },
+  {
+    "id": "evt_1720000004_jkl012",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "tool_call",
+    "content": "{\"command\": \"rg -l \\\"routes\\\" src/\", \"working_dir\": \"/home/rick/Projects/example\"}",
+    "timestamp": 1720000004000
+  },
+  {
+    "id": "evt_1720000005_mno345",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "response",
+    "content": "Found 3 route files. I'll add the stats endpoint to `src/routes/api.ts`.",
+    "timestamp": 1720000005000
+  },
+  {
+    "id": "evt_1720000006_pqr678",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "approval_request",
+    "content": "{\"id\": \"appr_1720000006_stu901\", \"sessionId\": \"sess_1720000000_xyz789\", \"command\": \"git add src/routes/api.ts && git commit -m 'feat: add /api/stats endpoint'\", \"workingDir\": \"/home/rick/Projects/example\", \"sandboxPolicy\": \"use_default\", \"affectedPaths\": [\"src/routes/api.ts\"], \"timestamp\": 1720000006000, \"status\": \"pending\"}",
+    "timestamp": 1720000006000
+  },
+  {
+    "id": "evt_1720000007_vwx234",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "response",
+    "content": "Changes committed. The endpoint is now live at `/api/stats`.",
+    "timestamp": 1720000007000
+  },
+  {
+    "id": "evt_1720000008_yza567",
+    "session_id": "sess_1720000000_xyz789",
+    "type": "system",
+    "content": "Codex exited with code 0",
+    "timestamp": 1720000008000
+  }
+]

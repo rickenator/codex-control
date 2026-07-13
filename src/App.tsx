@@ -1,11 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import SessionList from './features/sessions/SessionList';
 import EventTimeline from './features/sessions/EventTimeline';
-import DiffViewer from './features/diffs/DiffViewer';
-import TerminalPane from './components/TerminalPane';
-import ApprovalQueue from './features/approvals/ApprovalQueue';
-
-type Tab = 'terminal' | 'diff' | 'approvals';
 
 type LanProviderConfig = {
   id: string;
@@ -42,6 +37,17 @@ type Notice = {
   message: string;
 };
 
+type ApprovalRequest = {
+  id: string;
+  sessionId: string;
+  command: string;
+  workingDir: string;
+  sandboxPolicy: string;
+  affectedPaths: string[];
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+};
+
 const defaultSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
   ollama: {
@@ -50,12 +56,12 @@ const defaultSettings: AppSettings = {
     apiKey: '',
   },
   remoteLlamaCpp: {
-    baseUrl: 'http://192.168.1.243:8081',
-    model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+    baseUrl: '',
+    model: '',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
-  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+  defaultModel: '',
   localProviderBehavior: {
     isolateProfile: true,
     enableWebSearch: true,
@@ -64,14 +70,11 @@ const defaultSettings: AppSettings = {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const saved = window.localStorage.getItem('consiglio:active-tab') ?? window.localStorage.getItem('consiglier:active-tab') ?? window.localStorage.getItem('codex-control:active-tab');
-    return saved === 'diff' || saved === 'approvals' ? saved : 'terminal';
-  });
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(() => window.localStorage.getItem('consiglio:selected-session') ?? window.localStorage.getItem('consiglier:selected-session') ?? window.localStorage.getItem('codex-control:selected-session'));
   const [recoveredSessions, setRecoveredSessions] = useState<string[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [providerStatus, setProviderStatus] = useState<Record<string, 'ok' | 'error' | 'checking' | null>>({});
@@ -93,7 +96,6 @@ export default function App() {
         setNotice({ kind: 'error', message: `LAN discovery failed: ${result.error}` });
       } else if (result.added > 0) {
         setNotice({ kind: 'success', message: `Found ${result.found} servers, added ${result.added} new providers` });
-        // Refresh settings
         window.codexApi.getSettings().then(setSettings);
       } else {
         setNotice({ kind: 'info', message: `Scanned network: ${result.found} server(s) found, none new` });
@@ -162,45 +164,12 @@ export default function App() {
   }, [sessions, selectedSession]);
 
   useEffect(() => {
-    window.localStorage.setItem('consiglio:active-tab', activeTab);
-  }, [activeTab]);
-
-  useEffect(() => {
     if (selectedSession) {
       window.localStorage.setItem('consiglio:selected-session', selectedSession);
     } else {
       window.localStorage.removeItem('consiglio:selected-session');
     }
   }, [selectedSession]);
-
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      // Escape closes modals
-      if (event.key === 'Escape') {
-        if (showSettings) { setShowSettings(false); return; }
-        if (showLanSettings) { setShowLanSettings(false); return; }
-      }
-      // Ctrl/Cmd shortcuts
-      if (!event.metaKey && !event.ctrlKey) return;
-      if (event.key === '1') {
-        setActiveTab('terminal');
-        event.preventDefault();
-      } else if (event.key === '2') {
-        setActiveTab('diff');
-        event.preventDefault();
-      } else if (event.key === '3') {
-        setActiveTab('approvals');
-        event.preventDefault();
-      } else if (event.key.toLowerCase() === 'n') {
-        // Ctrl+N opens new session drawer
-        void handleRequestNewSession();
-        event.preventDefault();
-      }
-    };
-
-    window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
-  }, [showSettings, showLanSettings]);
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
   const [quickProvider, setQuickProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama'>(settings.defaultProvider);
@@ -216,23 +185,6 @@ export default function App() {
       updatedSettings.ollama = settings.ollama || { baseUrl: 'http://localhost:11434', model: 'qwen2.5:32b-instruct-q4_K_M', apiKey: '' };
     }
     await handleSettingsChange(updatedSettings);
-  };
-  const [terminalBuffer, setTerminalBuffer] = useState('');
-
-  useEffect(() => {
-    if (!selectedSession) return;
-    window.codexApi.getTerminalBuffer(selectedSession).then(setTerminalBuffer);
-    const unsubscribe = window.codexApi.onTerminalOutput(({ sessionId: sid, data }) => {
-      if (sid === selectedSession) setTerminalBuffer(prev => prev + data);
-    });
-    return () => unsubscribe();
-  }, [selectedSession]);
-
-  const handleClearTerminal = async () => {
-    // Clear the terminal buffer by sending a clear sequence
-    if (!selectedSession) return;
-    await window.codexApi.sendInput(selectedSession, '\x0c'); // Ctrl+L clears terminal
-    setTerminalBuffer('');
   };
 
   const handleStartSession = async (options: {
@@ -358,6 +310,7 @@ export default function App() {
       }
       const approvals = await window.codexApi.getPendingApprovals();
       setPendingApprovalCount(approvals.length);
+      setPendingApprovals(approvals);
       setNotice({ kind: 'info', message: 'Approval granted.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not approve command: ${(e as Error).message}` });
@@ -372,6 +325,7 @@ export default function App() {
       }
       const approvals = await window.codexApi.getPendingApprovals();
       setPendingApprovalCount(approvals.length);
+      setPendingApprovals(approvals);
       setNotice({ kind: 'info', message: 'Approval rejected.' });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not reject command: ${(e as Error).message}` });
@@ -453,10 +407,36 @@ export default function App() {
     }
   };
 
+  // Fetch pending approvals when session changes
+  useEffect(() => {
+    if (!selectedSession) {
+      setPendingApprovals([]);
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const approvals = await window.codexApi.getPendingApprovals(selectedSession);
+        if (!cancelled) setPendingApprovals(approvals);
+      } catch { /* ignore */ }
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 2000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [selectedSession]);
+
   const healthSummary = summarizeHealth(startupStatus);
+
+  const sandboxColors: Record<string, string> = {
+    'danger-full-access': '#f85149',
+    'on-request': '#d29922',
+    'off': '#3fb950',
+    'auto-approve': '#58a6ff',
+  };
 
   return (
     <div className="codex-app-shell">
+      {/* Notice Banner */}
       {notice && (
         <div className={`codex-banner ${notice.kind === 'error' ? 'codex-notice-error' : notice.kind === 'success' ? 'codex-notice-success' : 'codex-notice-info'}`}>
           <span style={{ fontSize: 13 }}>{notice.message}</span>
@@ -464,6 +444,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Recovered Sessions Banner */}
       {recoveredSessions.length > 0 && (
         <div className="codex-banner">
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
@@ -478,42 +459,92 @@ export default function App() {
         </div>
       )}
 
+      {/* Health Check Banner */}
       <section className="codex-banner" style={{ alignItems: 'stretch', background: 'rgba(255,255,255,0.035)', borderColor: healthSummary.borderColor }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ color: '#f0f6fc', fontWeight: 700, fontSize: 13 }}>Startup health and updates</span>
-              <span style={{ color: healthSummary.color, fontSize: 12 }}>{healthSummary.message}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: healthSummary.color }}>{healthSummary.message}</span>
+          {startupStatus && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {startupStatus.checks.map(check => (
+                <HealthPill key={check.id} label={check.label} status={check.status} message={check.message} />
+              ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              {startupStatus?.appUpdate.releaseUrl && startupStatus.appUpdate.updateAvailable && (
-                <button className="codex-button codex-button-info" onClick={() => void handleOpenPath(startupStatus.appUpdate.releaseUrl!, 'Release page')}>
-                  Open release
-                </button>
-              )}
-              <button className="codex-button codex-button-secondary" onClick={() => void handleRefreshStartupStatus()} disabled={isRefreshingStatus}>
-                {isRefreshingStatus ? 'Checking…' : 'Re-check'}
-              </button>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {Object.entries(providerStatus).map(([id, status]) => (
-              <HealthPill key={id} label={id} status={status || 'checking'} message={status === 'ok' ? 'Provider ready' : status === 'error' ? 'Connection failed' : 'Checking…'} />
-            ))}
-            {startupStatus ? (
-              <>
-                <HealthPill label="Consiglio" status={startupStatus.appUpdate.updateAvailable ? 'warning' : startupStatus.appUpdate.status} message={startupStatus.appUpdate.latestVersion ? `${startupStatus.appUpdate.currentVersion} → ${startupStatus.appUpdate.latestVersion}` : startupStatus.appUpdate.currentVersion} />
-                {startupStatus.checks.map(check => (
-                  <HealthPill key={check.id} label={check.label} status={check.status} message={check.message} />
-                ))}
-              </>
-            ) : (
-              <HealthPill label="Checks" status="checking" message="Checking app releases, Codex CLI, and provider interfaces…" />
-            )}
-          </div>
+          )}
         </div>
+        <button
+          className="codex-button codex-button-secondary"
+          onClick={handleRefreshStartupStatus}
+          disabled={isRefreshingStatus}
+          style={{ fontSize: 10, padding: '4px 10px', whiteSpace: 'nowrap' }}
+        >
+          {isRefreshingStatus ? 'Checking…' : 'Refresh'}
+        </button>
       </section>
 
+      {/* Approval Banner — full-width, impossible to miss */}
+      {pendingApprovals.length > 0 && (
+        <section className="codex-banner" style={{
+          background: 'rgba(210, 153, 34, 0.12)',
+          borderColor: 'rgba(210, 153, 34, 0.4)',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 10,
+          padding: '12px 16px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#d29922' }}>
+              ⏳ {pendingApprovals.length} pending approval{pendingApprovals.length === 1 ? '' : 's'}
+            </span>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => setPendingApprovals([])}
+              style={{ fontSize: 10, padding: '3px 8px' }}
+            >
+              Dismiss
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pendingApprovals.map(approval => (
+              <div key={approval.id} style={{
+                background: 'rgba(0,0,0,0.2)',
+                borderRadius: 10,
+                padding: '10px 12px',
+                borderLeft: `3px solid ${sandboxColors[approval.sandboxPolicy] || '#8b949e'}`,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+                  <code style={{
+                    fontSize: 12, color: '#c9d1d9', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                  }}>
+                    {approval.command}
+                  </code>
+                  <div className="codex-chip" style={{ padding: '2px 6px', fontSize: 9, borderColor: sandboxColors[approval.sandboxPolicy] || '#8b949e', flexShrink: 0 }}>
+                    <span className="codex-chip-value" style={{ color: sandboxColors[approval.sandboxPolicy] || '#8b949e' }}>{approval.sandboxPolicy}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button
+                    className="codex-button codex-button-primary"
+                    onClick={() => handleApprove(approval.id)}
+                    style={{ fontSize: 11, padding: '4px 12px' }}
+                  >
+                    ✓ Approve
+                  </button>
+                  <button
+                    className="codex-button codex-button-danger"
+                    onClick={() => handleReject(approval.id)}
+                    style={{ fontSize: 11, padding: '4px 12px' }}
+                  >
+                    ✗ Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Page Header */}
       <header className="codex-page-header">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Consiglio</div>
@@ -533,14 +564,14 @@ export default function App() {
               onClick={() => void handleQuickProviderChange(p)}
               className={`codex-button ${quickProvider === p ? 'codex-button-primary' : 'codex-button-secondary'}`}
               style={{ fontSize: 10, padding: '3px 8px', whiteSpace: 'nowrap' }}
-              title={p === 'remote_llamacpp' ? 'Remote llama.cpp (godzilla)' : 
-                     p === 'ollama' ? 'Ollama (local)' : 
-                     p === 'default' ? 'Default Codex' : 
+              title={p === 'remote_llamacpp' ? 'Remote llama.cpp (godzilla)' :
+                     p === 'ollama' ? 'Ollama (local)' :
+                     p === 'default' ? 'Default Codex' :
                      p === 'gpt56' ? 'GPT-5.6' : 'LAN Provider'}
             >
-              {p === 'remote_llamacpp' ? 'llama.cpp' : 
-               p === 'ollama' ? 'Ollama' : 
-               p === 'default' ? 'Default' : 
+              {p === 'remote_llamacpp' ? 'llama.cpp' :
+               p === 'ollama' ? 'Ollama' :
+               p === 'default' ? 'Default' :
                p === 'gpt56' ? 'GPT-5.6' : 'LAN'}
             </button>
           ))}
@@ -580,6 +611,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Settings Panel */}
       {showSettings && (
         <section className="codex-panel" style={{ margin: '0 14px 14px', flex: '0 0 auto' }}>
           <div className="codex-panel-header">
@@ -641,6 +673,143 @@ export default function App() {
         </section>
       )}
 
+      {/* LAN Providers Settings */}
+      {showSettings && (
+        <section className="codex-panel" style={{ margin: '0 14px 14px', flex: '0 0 auto' }}>
+          <div className="codex-panel-header">
+            <div className="codex-panel-title">
+              <span className="codex-kicker">Providers</span>
+              <span className="codex-panel-heading">Remote & LAN</span>
+            </div>
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => { setShowSettings(false); setShowLanSettings(true); }}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+            >
+              Manage
+            </button>
+          </div>
+          <div style={{ padding: 14, display: 'grid', gap: 12 }}>
+            {/* Remote llama.cpp */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Remote llama.cpp</label>
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => handleTestConnection('remote_llamacpp')}
+                  disabled={testingConnection !== null}
+                  style={{ fontSize: 10, padding: '2px 6px' }}
+                >
+                  Test
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="Base URL (e.g., http://192.168.1.243:8081)"
+                value={settings.remoteLlamaCpp.baseUrl}
+                onChange={(e) => void handleSettingsChange({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, baseUrl: e.target.value } })}
+                className="codex-input"
+              />
+              <input
+                type="text"
+                placeholder="Model"
+                value={settings.remoteLlamaCpp.model}
+                onChange={(e) => void handleSettingsChange({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, model: e.target.value } })}
+                className="codex-input"
+              />
+            </div>
+
+            {/* Ollama */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Ollama</label>
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => handleTestConnection('ollama')}
+                  disabled={testingConnection !== null}
+                  style={{ fontSize: 10, padding: '2px 6px' }}
+                >
+                  Test
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="Base URL (e.g., http://localhost:11434)"
+                value={settings.ollama.baseUrl}
+                onChange={(e) => void handleSettingsChange({ ...settings, ollama: { ...settings.ollama, baseUrl: e.target.value } })}
+                className="codex-input"
+              />
+              <input
+                type="text"
+                placeholder="Model"
+                value={settings.ollama.model}
+                onChange={(e) => void handleSettingsChange({ ...settings, ollama: { ...settings.ollama, model: e.target.value } })}
+                className="codex-input"
+              />
+            </div>
+
+            {/* LAN Providers */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>LAN Providers</label>
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => { setShowSettings(false); setShowLanSettings(true); }}
+                  style={{ fontSize: 11, padding: '4px 10px' }}
+                >
+                  Manage
+                </button>
+              </div>
+              {settings.lanProviders.length === 0 ? (
+                <span style={{ fontSize: 12, color: '#8b949e' }}>No LAN providers configured</span>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {settings.lanProviders.map(p => (
+                    <div key={p.id} style={{ fontSize: 12, color: '#f0f6fc', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600 }}>{p.name || p.host}:{p.port}</span>
+                        <button
+                          className="codex-button codex-button-secondary"
+                          onClick={() => handleTestConnection('remote_llamacpp')}
+                          disabled={testingConnection !== null}
+                          style={{ fontSize: 10, padding: '2px 6px' }}
+                          title={`Test ${p.name || p.host}`}
+                        >
+                          Test
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#8b949e' }}>
+                        {p.host}:{p.port} {p.model ? `· ${p.model}` : '· no model set'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Save Button */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => setShowSettings(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="codex-button codex-button-primary"
+                onClick={() => {
+                  handleSettingsChange(settings);
+                  setShowSettings(false);
+                }}
+              >
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Main Content: Sidebar + Single Timeline Panel */}
       <div className="codex-shell-grid">
         <SessionList
           sessions={sessions}
@@ -659,118 +828,52 @@ export default function App() {
           onSettingsChange={(s: any) => handleSettingsChange(s)}
         />
 
-        <div className="codex-main-grid">
-          <section className="codex-panel">
-            <div className="codex-panel-header">
-              <div className="codex-panel-title">
-                <span className="codex-kicker">Session console</span>
-                <span className="codex-panel-heading">{selectedSession || 'Select a session'}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                {activeSession?.repository && (
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => handleCopyText(activeSession.repository, 'Repository path')}
-                  >
-                    Copy repo
-                  </button>
-                )}
-                {activeSession?.repository && (
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => handleOpenPath(activeSession.repository, 'Workspace')}
-                  >
-                    Open folder
-                  </button>
-                )}
-                {activeSession?.status === 'running' && selectedSession && (
-                  <button
-                    className="codex-button codex-button-danger"
-                    onClick={() => handleStopSession(selectedSession)}
-                  >
-                    Stop
-                  </button>
-                )}
-                {(['terminal', 'diff', 'approvals'] as Tab[]).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`codex-button ${activeTab === tab ? 'codex-button-info' : 'codex-button-secondary'}`}
-                  >
-                    {tab}
-                    {tab === 'approvals' && pendingApprovalCount > 0 && (
-                      <span style={{
-                        marginLeft: 6,
-                        background: '#f85149',
-                        color: '#fff',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        borderRadius: '50%',
-                        width: 16,
-                        height: 16,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                        {pendingApprovalCount}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+        {/* Single timeline panel — no more 2-column grid */}
+        <section className="codex-panel" style={{ flex: 1, minWidth: 0 }}>
+          <div className="codex-panel-header">
+            <div className="codex-panel-title">
+              <span className="codex-kicker">Session console</span>
+              <span className="codex-panel-heading">{selectedSession || 'Select a session'}</span>
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {activeTab === 'terminal' && (
-                <TerminalPane
-                  sessionId={selectedSession}
-                  compact
-                  onCopyTranscript={handleCopyText}
-                  onRequestNewSession={handleRequestNewSession}
-                />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {activeSession?.repository && (
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => handleCopyText(activeSession.repository, 'Repository path')}
+                >
+                  Copy repo
+                </button>
               )}
-              {activeTab === 'diff' && (
-                <DiffViewer
-                  sessionId={selectedSession}
-                  repository={activeSession?.repository}
-                  onCopyPath={handleCopyText}
-                  onOpenPath={handleOpenPath}
-                  onRequestNewSession={handleRequestNewSession}
-                  onError={(message) => setNotice({ kind: 'error', message })}
-                />
+              {activeSession?.repository && (
+                <button
+                  className="codex-button codex-button-secondary"
+                  onClick={() => handleOpenPath(activeSession.repository, 'Workspace')}
+                >
+                  Open folder
+                </button>
               )}
-              {activeTab === 'approvals' && (
-                <ApprovalQueue
-                  sessionId={selectedSession}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                  onCopy={handleCopyText}
-                  onOpen={handleOpenPath}
-                  onRequestNewSession={handleRequestNewSession}
-                  onError={(message) => setNotice({ kind: 'error', message })}
-                />
+              {activeSession?.status === 'running' && selectedSession && (
+                <button
+                  className="codex-button codex-button-danger"
+                  onClick={() => handleStopSession(selectedSession)}
+                >
+                  Stop
+                </button>
               )}
             </div>
-          </section>
-
-          <section className="codex-panel">
-            <div className="codex-panel-header">
-              <div className="codex-panel-title">
-                <span className="codex-kicker">Conversation</span>
-                <span className="codex-panel-heading">Prompt, response, tools</span>
-              </div>
-              <div style={{ fontSize: 11, color: '#8b949e' }}>Ctrl/Cmd + 1, 2, 3</div>
-            </div>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <EventTimeline
-                sessionId={selectedSession}
-                compact
-                onCopySessionId={(value) => handleCopyText(value, 'Event ID')}
-                onRequestNewSession={handleRequestNewSession}
-              />
-            </div>
-          </section>
-        </div>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <EventTimeline
+              sessionId={selectedSession}
+              compact
+              onCopySessionId={(value) => handleCopyText(value, 'Event ID')}
+              onRequestNewSession={handleRequestNewSession}
+            />
+          </div>
+        </section>
       </div>
+
+      {/* Footer */}
       <footer className="codex-footer" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
           <span style={{ color: '#f0f6fc', fontWeight: 600 }}>
@@ -787,8 +890,8 @@ export default function App() {
           <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
-          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6 profile active' : settings.defaultProvider === 'lan' ? 'LAN provider active' : 'Default Codex profile active'}</span>
-          <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search · 1/2/3 tabs</span>
+          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6 profile active' : settings.defaultProvider === 'ollama' ? 'Ollama profile active' : settings.defaultProvider === 'lan' ? 'LAN provider active' : 'Default Codex profile active'}</span>
+          <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search</span>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {settings.lanProviders.length > 0 && (
@@ -902,214 +1005,38 @@ export default function App() {
               </button>
               <button
                 className="codex-button codex-button-primary"
-                onClick={() => {
-                  if (!lanForm.host || !lanForm.port) {
-                    setNotice({ kind: 'error', message: 'Host and port are required' });
-                    return;
+                onClick={async () => {
+                  try {
+                    if (lanForm.id) {
+                      await window.codexApi.lanUpdateProvider({
+                        id: lanForm.id,
+                        name: lanForm.name,
+                        host: lanForm.host,
+                        port: parseInt(lanForm.port),
+                        model: lanForm.model,
+                        apiKey: lanForm.apiKey,
+                      });
+                    } else {
+                      await window.codexApi.lanAddProvider({
+                        id: `lan-${Date.now()}`,
+                        name: lanForm.name,
+                        host: lanForm.host,
+                        port: parseInt(lanForm.port),
+                        model: lanForm.model,
+                        apiKey: lanForm.apiKey,
+                      });
+                    }
+                    const updated = await window.codexApi.getSettings();
+                    setSettings(updated);
+                    setShowLanSettings(false);
+                    setNotice({ kind: 'success', message: lanForm.id ? 'Provider updated' : 'Provider added' });
+                  } catch (e) {
+                    setNotice({ kind: 'error', message: `LAN provider error: ${(e as Error).message}` });
                   }
-                  const provider = {
-                    id: lanForm.id || `lan-${Date.now()}`,
-                    name: lanForm.name || `${lanForm.host}:${lanForm.port}`,
-                    host: lanForm.host,
-                    port: parseInt(lanForm.port, 10),
-                    model: lanForm.model,
-                    apiKey: lanForm.apiKey,
-                  };
-                  if (lanForm.id) {
-                    window.codexApi.lanUpdateProvider(provider);
-                  } else {
-                    window.codexApi.lanAddProvider(provider);
-                  }
-                  setSettings({ ...settings, lanProviders: [...settings.lanProviders, provider] });
-                  setShowLanSettings(false);
-                  setLanForm({ id: '', name: '', host: '', port: '8081', model: '', apiKey: '' });
-                  setNotice({ kind: 'success', message: 'LAN provider saved' });
                 }}
               >
                 {lanForm.id ? 'Update' : 'Add'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* General Settings Modal */}
-      {showSettings && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }} onClick={() => setShowSettings(false)}>
-          <div style={{
-            background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
-            padding: 24, width: 520, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto',
-          }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#f0f6fc' }}>
-              Launch Settings
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Default Provider */}
-              <div>
-                <label style={{ fontSize: 12, color: '#8b949e', marginBottom: 4, display: 'block' }}>Default Provider</label>
-                <select
-                  value={settings.defaultProvider}
-                  onChange={e => setSettings({ ...settings, defaultProvider: e.target.value as any })}
-                  className="codex-select"
-                  style={{ width: '100%', fontSize: 12, padding: '6px 8px', background: '#0d1117', color: '#f0f6fc', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4 }}
-                >
-                  <option value="remote_llamacpp">Remote llama.cpp</option>
-                  <option value="ollama">Ollama (local)</option>
-                  <option value="default">Default Codex</option>
-                  <option value="gpt56">GPT-5.6</option>
-                  <option value="lan">LAN Provider</option>
-                </select>
-              </div>
-
-              {/* Default Model */}
-              <div>
-                <label style={{ fontSize: 12, color: '#8b949e', marginBottom: 4, display: 'block' }}>Default Model (for Default provider)</label>
-                <input
-                  type="text"
-                  value={settings.defaultModel || settings.remoteLlamaCpp.model}
-                  onChange={e => setSettings({ ...settings, defaultModel: e.target.value })}
-                  className="codex-input"
-                  placeholder="unsloth/Qwen3.6-35B-A3B-GGUF"
-                />
-              </div>
-
-
-              {/* Ollama Settings */}
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Ollama (local)</label>
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => handleTestConnection('ollama')}
-                    disabled={testingConnection === 'ollama' || !settings.ollama.baseUrl}
-                    style={{ fontSize: 10, padding: '3px 8px' }}
-                  >
-                    {testingConnection === 'ollama' ? 'Testing...' : 'Test'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="Base URL (e.g., http://localhost:11434)"
-                    value={settings.ollama.baseUrl}
-                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, baseUrl: e.target.value } })}
-                    className="codex-input"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Model (e.g., qwen2.5:32b-instruct-q4_K_M)"
-                    value={settings.ollama.model}
-                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, model: e.target.value } })}
-                    className="codex-input"
-                  />
-                  <input
-                    type="password"
-                    placeholder="API Key (optional)"
-                    value={settings.ollama.apiKey}
-                    onChange={e => setSettings({ ...settings, ollama: { ...settings.ollama, apiKey: e.target.value } })}
-                    className="codex-input"
-                  />
-                </div>
-              </div>
-
-              {/* Remote llama.cpp Settings */}
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>Remote llama.cpp</label>
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => handleTestConnection('remote_llamacpp')}
-                    disabled={testingConnection === 'remote_llamacpp' || !settings.remoteLlamaCpp.baseUrl}
-                    style={{ fontSize: 10, padding: '3px 8px' }}
-                  >
-                    {testingConnection === 'remote_llamacpp' ? 'Testing...' : 'Test'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input
-                    type="text"
-                    placeholder="Base URL (e.g., http://192.168.1.243:8081)"
-                    value={settings.remoteLlamaCpp.baseUrl}
-                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, baseUrl: e.target.value } })}
-                    className="codex-input"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Model (e.g., unsloth/Qwen3.6-35B-A3B-GGUF)"
-                    value={settings.remoteLlamaCpp.model}
-                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, model: e.target.value } })}
-                    className="codex-input"
-                  />
-                  <input
-                    type="password"
-                    placeholder="API Key (optional)"
-                    value={settings.remoteLlamaCpp.apiKey}
-                    onChange={e => setSettings({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, apiKey: e.target.value } })}
-                    className="codex-input"
-                  />
-                </div>
-              </div>
-
-              {/* LAN Providers Summary */}
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, color: '#f0f6fc', fontWeight: 600 }}>LAN Providers</label>
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => { setShowSettings(false); setShowLanSettings(true); }}
-                    style={{ fontSize: 11, padding: '4px 10px' }}
-                  >
-                    Manage
-                  </button>
-                </div>
-                {settings.lanProviders.length === 0 ? (
-                  <span style={{ fontSize: 12, color: '#8b949e' }}>No LAN providers configured</span>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {settings.lanProviders.map(p => (
-                      <div key={p.id} style={{ fontSize: 12, color: '#f0f6fc', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600 }}>{p.name || p.host}:{p.port}</span>
-                          <button
-                            className="codex-button codex-button-secondary"
-                            onClick={() => handleTestConnection('remote_llamacpp')}
-                            disabled={testingConnection !== null}
-                            style={{ fontSize: 10, padding: '2px 6px' }}
-                            title={`Test ${p.name || p.host}`}
-                          >
-                            Test
-                          </button>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#8b949e' }}>
-                          {p.host}:{p.port} {p.model ? `· ${p.model}` : '· no model set'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Save Button */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                <button
-                  className="codex-button codex-button-secondary"
-                  onClick={() => setShowSettings(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="codex-button codex-button-primary"
-                  onClick={() => {
-                    handleSettingsChange(settings);
-                    setShowSettings(false);
-                  }}
-                >
-                  Save Settings
-                </button>
-              </div>
             </div>
           </div>
         </div>

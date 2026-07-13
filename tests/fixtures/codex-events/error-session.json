@@ -1,0 +1,44 @@
+[
+  {
+    "id": "evt_1720000011_bcd890",
+    "session_id": "sess_1720000010_efg123",
+    "type": "system",
+    "content": "Started Codex in /home/rick/Projects/debug-project",
+    "timestamp": 1720000011000
+  },
+  {
+    "id": "evt_1720000012_hij456",
+    "session_id": "sess_1720000010_efg123",
+    "type": "prompt",
+    "content": "Fix the race condition in the WebSocket handler.",
+    "timestamp": 1720000012000
+  },
+  {
+    "id": "evt_1720000013_klm789",
+    "session_id": "sess_1720000010_efg123",
+    "type": "tool_call",
+    "content": "{\"command\": \"rg \\\"onMessage\\\" src/websocket/\", \"working_dir\": \"/home/rick/Projects/debug-project\"}",
+    "timestamp": 1720000013000
+  },
+  {
+    "id": "evt_1720000014_nop012",
+    "session_id": "sess_1720000010_efg123",
+    "type": "error",
+    "content": "EACCES: permission denied, open '/home/rick/Projects/debug-project/src/websocket/handler.ts'",
+    "timestamp": 1720000014000
+  },
+  {
+    "id": "evt_1720000015_qrs345",
+    "session_id": "sess_1720000010_efg123",
+    "type": "response",
+    "content": "Permission denied. Let me try reading the file with a different approach.",
+    "timestamp": 1720000015000
+  },
+  {
+    "id": "evt_1720000016_tuv678",
+    "session_id": "sess_1720000010_efg123",
+    "type": "system",
+    "content": "Codex exited with code 1",
+    "timestamp": 1720000016000
+  }
+]

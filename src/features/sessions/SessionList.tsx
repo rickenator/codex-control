@@ -49,6 +49,11 @@ type NewSessionOptions = {
     apiKey?: string;
   };
   selectedLanProviderId?: string;
+  lanProvider?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+  };
   defaultModel?: string;
 };
 
@@ -127,6 +132,7 @@ const statusColor: Record<string, string> = {
 
 export default function SessionList({ sessions, selected, onSelect, onStartSession, onReconnect, onPickRepository, onCopyPath, onOpenPath, onTestRemote, onRequestNewSession, onStopSession, onDeleteSession, settings, onSettingsChange }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [repository, setRepository] = useState('');
   const [branch, setBranch] = useState('');
   const [provider, setProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama'>(settings.defaultProvider);
@@ -134,6 +140,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
   const [model, setModel] = useState(settings.remoteLlamaCpp.model);
   const [apiKey, setApiKey] = useState(settings.remoteLlamaCpp.apiKey);
   const [selectedLanProviderId, setSelectedLanProviderId] = useState(() => settings.lanProviders[0]?.id || '');
+  const [lanDiscoveryMode, setLanDiscoveryMode] = useState<'auto' | 'manual'>('auto');
+  const [lanManualHost, setLanManualHost] = useState('');
+  const [lanManualPort, setLanManualPort] = useState('8081');
+  const [lanManualModel, setLanManualModel] = useState('');
+  const [lanManualApiKey, setLanManualApiKey] = useState('llama.cpp');
+  const [lanDiscovering, setLanDiscovering] = useState(false);
   const [defaultProviderModel, setDefaultProviderModel] = useState(settings.defaultModel || settings.remoteLlamaCpp.model);
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -242,7 +254,10 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
       return;
     }
 
-    if (provider === 'lan' && !selectedLanProvider) {
+    if (provider === 'lan' && lanDiscoveryMode === 'auto' && !selectedLanProvider) {
+      return;
+    }
+    if (provider === 'lan' && lanDiscoveryMode === 'manual' && !lanManualHost.trim()) {
       return;
     }
 
@@ -261,7 +276,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
         apiKey: settings.ollama.apiKey || undefined,
       } : undefined,
       defaultModel: provider === 'default' ? (defaultProviderModel.trim() || undefined) : undefined,
-      selectedLanProviderId: provider === 'lan' ? selectedLanProviderId || undefined : undefined,
+      selectedLanProviderId: provider === 'lan' && lanDiscoveryMode === 'auto' ? (selectedLanProviderId || undefined) : undefined,
+      lanProvider: provider === 'lan' && lanDiscoveryMode === 'manual' ? {
+        baseUrl: lanManualHost.trim() ? `http://${lanManualHost.trim().replace(/\/+$/, '')}:${lanManualPort.trim()}` : undefined,
+        model: lanManualModel.trim() || undefined,
+        apiKey: lanManualApiKey.trim() || undefined,
+      } : undefined,
     });
     onSettingsChange({
       defaultProvider: provider,
@@ -561,8 +581,8 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               className="codex-button codex-button-secondary"
               onClick={() => {
                 setProvider('remote_llamacpp');
-                setBaseUrl('http://192.168.1.243:8081');
-                setModel('unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M');
+                setBaseUrl('');
+                setModel('');
                 setApiKey('llama.cpp');
               }}
             >
@@ -620,6 +640,14 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               className="codex-input"
               style={{ marginBottom: 8 }}
             />
+            <button
+              className="codex-button codex-button-secondary"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{ width: '100%', fontSize: 11, marginBottom: 8 }}
+            >
+              {showAdvanced ? '▲ Hide advanced options' : '▼ Advanced: provider, model, endpoint'}
+            </button>
+            {showAdvanced && (<>
             <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#8b949e' }}>Provider</label>
             <select
               value={provider}
@@ -669,21 +697,111 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
               </>
             )}
             {provider === 'lan' && (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: '#8b949e' }}>LAN provider:</span>
-                <select
-                  value={selectedLanProviderId}
-                  onChange={(event) => setSelectedLanProviderId(event.target.value)}
-                  className="codex-select"
-                  style={{ flex: 1 }}
-                  disabled={settings.lanProviders.length === 0}
-                >
-                  {settings.lanProviders.length === 0 ? (
-                    <option value="">No LAN providers configured</option>
-                  ) : settings.lanProviders.map((lanProvider) => (
-                    <option key={lanProvider.id} value={lanProvider.id}>{lanProvider.name}</option>
-                  ))}
-                </select>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: '#8b949e' }}>LAN provider:</span>
+                  {settings.lanProviders.length > 0 && (
+                    <>
+                      <button
+                        className={`codex-button ${lanDiscoveryMode === 'auto' ? 'codex-button-primary' : 'codex-button-secondary'}`}
+                        onClick={() => setLanDiscoveryMode('auto')}
+                        style={{ fontSize: 10, padding: '2px 8px' }}
+                      >
+                        Auto (discovered)
+                      </button>
+                      <button
+                        className={`codex-button ${lanDiscoveryMode === 'manual' ? 'codex-button-primary' : 'codex-button-secondary'}`}
+                        onClick={() => setLanDiscoveryMode('manual')}
+                        style={{ fontSize: 10, padding: '2px 8px' }}
+                      >
+                        Manual entry
+                      </button>
+                    </>
+                  )}
+                </div>
+                {lanDiscoveryMode === 'auto' ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <select
+                      value={selectedLanProviderId}
+                      onChange={(event) => setSelectedLanProviderId(event.target.value)}
+                      className="codex-select"
+                      style={{ flex: 1 }}
+                      disabled={settings.lanProviders.length === 0 || lanDiscovering}
+                    >
+                      {settings.lanProviders.length === 0 ? (
+                        <option value="">No LAN providers configured</option>
+                      ) : settings.lanProviders.map((lanProvider) => (
+                        <option key={lanProvider.id} value={lanProvider.id}>{lanProvider.name}</option>
+                      ))}
+                    </select>
+                    {settings.lanProviders.length === 0 && (
+                      <button
+                        className="codex-button codex-button-info"
+                        onClick={async () => {
+                          setLanDiscovering(true);
+                          try {
+                            const result = await window.codexApi.lanDiscover();
+                            if (result.error) {
+                              alert('Discovery failed: ' + result.error);
+                            } else if (result.added > 0) {
+                              alert(`Found ${result.found} server(s), added ${result.added}.`);
+                              window.codexApi.getSettings().then((s: any) => {
+                                onSettingsChange({ ...settings, lanProviders: s.lanProviders || [] });
+                              });
+                            } else {
+                              alert(`Scanned network: ${result.found} server(s) found, none new.`);
+                            }
+                          } catch (e) {
+                            alert('Discovery failed: ' + (e as Error).message);
+                          } finally {
+                            setLanDiscovering(false);
+                          }
+                        }}
+                        disabled={lanDiscovering}
+                        style={{ fontSize: 10, padding: '2px 8px' }}
+                      >
+                        {lanDiscovering ? 'Scanning...' : 'Scan now'}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <input
+                        type="text"
+                        placeholder="Host (e.g. 192.168.1.100)"
+                        value={lanManualHost}
+                        onChange={(event) => setLanManualHost(event.target.value)}
+                        className="codex-input"
+                        style={{ flex: 1 }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Port"
+                        value={lanManualPort}
+                        onChange={(event) => setLanManualPort(event.target.value)}
+                        className="codex-input"
+                        style={{ width: 80 }}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Model name"
+                      value={lanManualModel}
+                      onChange={(event) => setLanManualModel(event.target.value)}
+                      className="codex-input"
+                      style={{ marginBottom: 4 }}
+                    />
+                    <input
+                      type="password"
+                      placeholder="API key (optional)"
+                      value={lanManualApiKey}
+                      onChange={(event) => setLanManualApiKey(event.target.value)}
+                      className="codex-input"
+                      style={{ marginBottom: 4 }}
+                    />
+                  </div>
+                )}
               </div>
             )}
             {provider === 'remote_llamacpp' && (
@@ -729,16 +847,12 @@ export default function SessionList({ sessions, selected, onSelect, onStartSessi
                 />
               </>
             )}
+            </>)}
             <button
-              className="codex-button codex-button-secondary"
+              className="codex-button codex-button-primary"
+              style={{ width: '100%', fontSize: 14, padding: '10px 16px', fontWeight: 600 }}
               disabled={(provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady}
               onClick={() => void launchSession()}
-              style={{
-                width: '100%',
-                background: (provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady ? 'rgba(255,255,255,0.06)' : 'rgba(35, 134, 54, 0.88)',
-                color: '#fff',
-                cursor: (provider === 'remote_llamacpp' && !canLaunchRemote) || !lanProfileReady ? 'not-allowed' : 'pointer',
-              }}
             >
               Start Session
             </button>

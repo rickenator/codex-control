@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+
 import { discoverLlamaCppServers } from './main/lan-discovery';
 import path from 'path';
 import fs from 'fs';
@@ -963,12 +964,12 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
       apiKey: nextSettings.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
     },
     lanProviders: nextSettings.lanProviders ?? appSettings.lanProviders,
-        defaultModel: saved.defaultModel?.trim() || appSettings.defaultModel,
-        localProviderBehavior: {
-          isolateProfile: saved.localProviderBehavior?.isolateProfile !== false,
-          enableWebSearch: saved.localProviderBehavior?.enableWebSearch !== false,
-          enableMultiAgent: saved.localProviderBehavior?.enableMultiAgent === true,
-        },
+    defaultModel: nextSettings.defaultModel?.trim() || appSettings.defaultModel,
+    localProviderBehavior: {
+      isolateProfile: nextSettings.localProviderBehavior?.isolateProfile !== false,
+      enableWebSearch: nextSettings.localProviderBehavior?.enableWebSearch !== false,
+      enableMultiAgent: nextSettings.localProviderBehavior?.enableMultiAgent === true,
+    },
   };
   saveSettings();
   mainWindow?.webContents.send('settings:changed', appSettings);

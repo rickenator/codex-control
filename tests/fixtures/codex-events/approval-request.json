@@ -1,0 +1,13 @@
+{
+  "id": "appr_1720000020_wxy901",
+  "sessionId": "sess_1720000019_zab234",
+  "command": "rm -rf node_modules && npm install",
+  "workingDir": "/home/rick/Projects/example",
+  "sandboxPolicy": "require_escalated",
+  "affectedPaths": [
+    "node_modules/",
+    "package-lock.json"
+  ],
+  "timestamp": 1720000020000,
+  "status": "pending"
+}

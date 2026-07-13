@@ -124,6 +124,7 @@ textarea:focus-visible {
   box-shadow: var(--shadow);
 }
 
+/* Simplified: sidebar + single main panel, no more grid */
 .codex-shell-grid {
   display: flex;
   flex: 1;
@@ -142,14 +143,6 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   overflow: hidden;
   box-shadow: var(--shadow);
-}
-
-.codex-main-grid {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-  gap: 12px;
 }
 
 .codex-panel {
@@ -462,12 +455,6 @@ textarea:focus-visible {
   border-color: rgba(248, 81, 73, 0.18);
 }
 
-@media (max-width: 1380px) {
-  .codex-main-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 1120px) {
   .codex-shell-grid {
     flex-direction: column;
@@ -475,6 +462,7 @@ textarea:focus-visible {
 
   .codex-sidebar {
     width: 100%;
+    max-height: 240px;
   }
 }
 

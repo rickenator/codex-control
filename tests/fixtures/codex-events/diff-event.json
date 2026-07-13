@@ -1,0 +1,7 @@
+{
+  "id": "evt_1720000025_cde567",
+  "session_id": "sess_1720000024_fgh890",
+  "type": "diff",
+  "content": "{\"filePath\": \"src/routes/api.ts\", \"hunks\": [{\"id\": 0, \"header\": \"@@ -12,3 +12,15 @@ import { Router } from 'express';\", \"content\": \"\\n+router.get('/stats', async (req, res) => {\\n+  const stats = await db.getStats();\\n+  res.json(stats);\\n+});\\n\"}]}",
+  "timestamp": 1720000025000
+}
