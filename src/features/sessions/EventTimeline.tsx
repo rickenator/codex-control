@@ -16,24 +16,15 @@ interface Props {
   onError?: (message: string) => void;
 }
 
-const eventColors: Record<string, string> = {
-  prompt: '#58a6ff',
-  response: '#3fb950',
-  tool_call: '#d29922',
-  approval_request: '#f85149',
-  diff: '#a371f7',
-  error: '#f85149',
-  output: '#8b949e',
-};
-
-const eventIcons: Record<string, string> = {
-  prompt: '👤',
-  response: '🤖',
-  tool_call: '⚙️',
-  approval_request: '⏳',
-  diff: '📄',
-  error: '❌',
-  output: '📝',
+const eventLabels: Record<string, string> = {
+  prompt: 'You',
+  response: 'Codex',
+  tool_call: 'Working',
+  approval_request: 'Approval required',
+  diff: 'Changes',
+  error: 'Error',
+  output: 'Output',
+  files: 'Files',
 };
 
 export default function EventTimeline({ sessionId, compact = false, onCopySessionId, onRequestNewSession, onError }: Props) {
@@ -41,11 +32,13 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!sessionId) {
       setEvents([]);
+      setIsAwaitingResponse(false);
       return;
     }
 
@@ -53,6 +46,7 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
     window.codexApi.getSessionEvents(sessionId)
       .then((loadedEvents: Event[]) => {
         setEvents(loadedEvents);
+        setIsAwaitingResponse(loadedEvents.length > 0 && loadedEvents[loadedEvents.length - 1]?.type === 'prompt');
       })
       .catch((error: Error) => {
         onError?.(`Could not load session events: ${error.message}`);
@@ -60,10 +54,26 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
 
     // Subscribe to new events
     const unsubscribe = window.codexApi.onEvent((event: Event) => {
-      if (event.session_id === sessionId) setEvents(prev => [...prev, event]);
+      if (event.session_id !== sessionId) return;
+      setEvents(prev => {
+        if (event.type === 'prompt') {
+          const optimisticIndex = prev.findIndex(candidate => candidate.id.startsWith('local-') && candidate.content === event.content);
+          if (optimisticIndex >= 0) {
+            const next = [...prev];
+            next[optimisticIndex] = event;
+            return next;
+          }
+        }
+        return [...prev, event];
+      });
+      if (event.type === 'response' || event.type === 'error') {
+        setIsAwaitingResponse(false);
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+    };
   }, [sessionId]);
 
   // Auto-scroll to bottom on new events
@@ -88,13 +98,34 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   };
 
   const handleSend = async () => {
-    if (!input.trim() || !sessionId || isSending) return;
+    if (!input.trim() || !sessionId || isSending || isAwaitingResponse) return;
+
+    const promptText = input.trim();
+    const optimisticEvent: Event = {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'prompt',
+      content: promptText,
+      timestamp: Date.now(),
+      session_id: sessionId,
+    };
 
     setIsSending(true);
+    setIsAwaitingResponse(true);
+    setEvents(prev => [...prev, optimisticEvent]);
+    setInput('');
     try {
-      await window.codexApi.sendInput(sessionId, input.trim() + '\n');
-      setInput('');
+      let sent = await window.codexApi.sendInput(sessionId, promptText);
+      if (!sent) {
+        const reconnected = await window.codexApi.reconnectSession(sessionId);
+        if (reconnected) {
+          sent = await window.codexApi.sendInput(sessionId, promptText);
+        }
+      }
+      if (!sent) throw new Error('Could not reconnect this task. Start a new task and try again.');
     } catch (e) {
+      setEvents(prev => prev.filter(event => event.id !== optimisticEvent.id));
+      setInput(promptText);
+      setIsAwaitingResponse(false);
       onError?.(`Could not send input: ${(e as Error).message}`);
     } finally {
       setIsSending(false);
@@ -116,9 +147,9 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div className="codex-empty-state" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-            <span>No session selected. Start a session to see the timeline here.</span>
+            <span>Start a task and tell Codex what you want done.</span>
             <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
-              Open new session drawer
+              New task
             </button>
           </div>
         </div>
@@ -127,7 +158,7 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   }
 
   return (
-    <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: compact ? 'transparent' : '#0d1117' }}>
+    <main className={`codex-conversation${compact ? ' codex-conversation-compact' : ''}`}>
       {!compact && (
         <div className="codex-toolbar" style={{ fontSize: 13, color: '#8b949e', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -160,86 +191,110 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
       )}
 
       {/* Event timeline */}
-      <div ref={timelineRef} style={{ flex: 1, overflowY: 'auto', padding: compact ? '12px 14px' : 16 }}>
+      <div ref={timelineRef} className="codex-message-scroll">
         {events.length === 0 && (
           <div className="codex-empty-state">
-            No events yet. Send a message to start the conversation.
-            <div style={{ marginTop: 10 }}>
-              <button className="codex-button codex-button-primary" onClick={() => void onRequestNewSession()}>
-                Open new session drawer
-              </button>
-            </div>
+            Tell Codex what you want to build, fix, or investigate.
           </div>
         )}
 
-        {events.map((event, index) => (
+        {events.filter(event => event.type !== 'system').map((event) => (
           <div
             key={event.id}
-            style={{
-              marginBottom: 12,
-              padding: 12,
-              borderRadius: 12,
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderLeft: `3px solid ${eventColors[event.type] || '#8b949e'}`,
-              boxShadow: index === events.length - 1 ? '0 8px 20px rgba(0,0,0,0.12)' : 'none',
-            }}
+            className={`codex-message codex-message-${event.type === 'prompt' ? 'user' : event.type === 'response' ? 'agent' : 'activity'}`}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <span style={{ fontSize: 14 }}>{eventIcons[event.type] || '📝'}</span>
-                <span style={{ fontSize: 11, color: '#f0f6fc', textTransform: 'uppercase', fontWeight: 600 }}>
-                  {event.type}
-                </span>
-                <span style={{ fontSize: 10, color: '#8b949e' }}>
-                  {formatEventTime(event.timestamp)}
-                </span>
+            <div className="codex-message-meta">
+              <div className="codex-message-author">
+                <span>{eventLabels[event.type] || 'Event'}</span>
+                <time>{formatEventTime(event.timestamp)}</time>
               </div>
               <button
-                className="codex-button codex-button-secondary"
-                style={{ padding: '4px 9px', fontSize: 11 }}
-                onClick={() => onCopySessionId(event.id)}
-                title="Copy event ID"
+                className="codex-message-copy"
+                onClick={() => onCopySessionId(event.content)}
+                title="Copy message"
               >
-                ID
+                Copy
               </button>
             </div>
-            <div style={{ fontSize: 13, color: '#c9d1d9', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5 }}>
-              {event.content}
-            </div>
+            {event.type === 'files' ? (
+              <InlineFileGallery sessionId={sessionId} content={event.content} />
+            ) : (
+              <div className="codex-message-content">
+                {event.content}
+              </div>
+            )}
           </div>
         ))}
+        {isAwaitingResponse && (
+          <div className="codex-thinking" role="status" aria-live="polite">
+            <span className="codex-spinner" aria-hidden="true" />
+            <span>Working…</span>
+          </div>
+        )}
       </div>
 
       {/* Input area */}
-      <div style={{ padding: 12, borderTop: compact ? '1px solid rgba(255,255,255,0.08)' : '1px solid #21262d', background: compact ? 'rgba(255,255,255,0.02)' : '#161b22' }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="text"
+      <div className="codex-composer-wrap">
+        <div className="codex-composer">
+          <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            disabled={isSending}
-            className="codex-input"
-            style={{ flex: 1, background: '#0d1117' }}
+            placeholder="Ask Codex to work on this repository"
+            disabled={isSending || isAwaitingResponse}
+            className="codex-textarea"
+            rows={2}
           />
           <button
             className="codex-button codex-button-primary"
             onClick={handleSend}
-            disabled={isSending || !input.trim()}
-            style={{
-              padding: '8px 16px',
-              background: input.trim() ? 'rgba(35, 134, 54, 0.92)' : 'rgba(255, 255, 255, 0.06)',
-              color: '#fff',
-              cursor: input.trim() ? 'pointer' : 'not-allowed',
-            }}
+            disabled={isSending || isAwaitingResponse || !input.trim()}
           >
-            {isSending ? '...' : 'Send'}
+            {isSending || isAwaitingResponse ? <span className="codex-spinner" aria-hidden="true" /> : 'Send'}
           </button>
+        </div>
+        <div className="codex-composer-hint">
+          <span>{isAwaitingResponse && !isSending ? 'Response in progress' : 'Enter to send'}</span>
+          <span>Shift+Enter for a new line</span>
         </div>
       </div>
     </main>
+  );
+}
+
+function InlineFileGallery({ sessionId, content }: { sessionId: string; content: string }) {
+  const [images, setImages] = useState<Array<{ path: string; dataUrl: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let paths: string[] = [];
+    try {
+      paths = (JSON.parse(content) as { paths?: string[] }).paths || [];
+    } catch {
+      return;
+    }
+    Promise.all(paths.map(async (filePath) => {
+      const preview = await window.codexApi.readWorkspaceFile(sessionId, filePath);
+      return preview.kind === 'image' ? { path: preview.path, dataUrl: preview.dataUrl } : null;
+    }))
+      .then(results => {
+        if (!cancelled) setImages(results.filter((result): result is { path: string; dataUrl: string } => Boolean(result)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [content, sessionId]);
+
+  if (images.length === 0) return <div className="codex-message-content">Loading image previews…</div>;
+
+  return (
+    <div className="codex-inline-gallery">
+      {images.map(image => (
+        <figure key={image.path}>
+          <img src={image.dataUrl} alt={image.path} />
+          <figcaption title={image.path}>{image.path}</figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 

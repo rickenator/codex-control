@@ -40,6 +40,10 @@ try {
       ipcRenderer.invoke('session:terminal-buffer', sessionId),
     sendInput: (sessionId: string, input: string) =>
       ipcRenderer.invoke('session:send-input', { sessionId, input }),
+    listWorkspaceFiles: (sessionId: string, path = '') =>
+      ipcRenderer.invoke('workspace:list-files', { sessionId, path }),
+    readWorkspaceFile: (sessionId: string, path: string) =>
+      ipcRenderer.invoke('workspace:read-file', { sessionId, path }),
     resizeTerminal: (sessionId: string, cols: number, rows: number) =>
       ipcRenderer.invoke('session:resize', { sessionId, cols, rows }),
     reconnectSession: (sessionId: string) =>

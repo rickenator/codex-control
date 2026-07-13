@@ -96,6 +96,8 @@ interface CodexAPI {
   getSessionEvents: (sessionId: string) => Promise<CodexEvent[]>;
   getTerminalBuffer: (sessionId: string) => Promise<string>;
   sendInput: (sessionId: string, input: string) => Promise<boolean>;
+  listWorkspaceFiles: (sessionId: string, path?: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean; isImage: boolean }>>;
+  readWorkspaceFile: (sessionId: string, path: string) => Promise<{ kind: 'image'; path: string; dataUrl: string } | { kind: 'text'; path: string; text: string }>;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   reconnectSession: (sessionId: string) => Promise<boolean>;
   getSettings: () => Promise<CodexSettings>;

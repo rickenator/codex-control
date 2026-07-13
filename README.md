@@ -1,22 +1,21 @@
 # Consiglio
 
-A Linux desktop control plane for Codex CLI — observability and session management.
+A Linux desktop client for running persistent Codex tasks against OpenAI or local OpenAI-compatible providers.
 
 ## Architecture
 
 - **Frontend**: React + TypeScript (Vite)
 - **Shell**: Electron (Linux packaging: AppImage + .deb)
-- **Terminal backend**: node-pty bridge to the real Codex CLI
-- **State**: SQLite (better-sqlite3) + append-only JSONL event logs
-- **Integration**: Codex app-server protocol (preferred) → CLI adapter (fallback)
+- **Codex backend**: structured `codex exec --json` sessions through node-pty
+- **State**: persistent JSON task and event history in Electron's user-data directory
+- **Files**: workspace browser with text and image previews
 
 ## Product surfaces
 
-1. **Workspace dashboard** — projects, branches, active sessions, model/provider status
-2. **Session console** — conversation timeline, plan steps, tool calls, approvals
-3. **Diff and review** — side-by-side/unified diff, per-hunk accept/reject
-4. **Task board** — queued, running, blocked, awaiting approval, completed, failed
-5. **Configuration** — provider profiles, MCP servers, sandbox policy, context limits
+1. **Task rail** — persistent and automatically reconnected Codex tasks
+2. **Conversation** — copyable prompts, responses, tool activity, errors, and working state
+3. **Files** — safe workspace browsing with text and inline image previews
+4. **Providers** — Codex, remote llama.cpp, Ollama, and configured LAN endpoints
 
 ## Milestones
 
@@ -42,15 +41,19 @@ The GUI must never become a simplified toy layer. Every visual action should hav
 # Install dependencies
 npm install
 
-# Build and run the Electron app
-npm run dev:all
+# Install the durable launcher
+mkdir -p ~/bin
+ln -sf "$PWD/bin/consiglio" ~/bin/consiglio
+
+# Start from any directory
+consiglio
 ```
 
 ## Remote llama.cpp
 
-The new session drawer can launch Codex against a remote `llama-server` endpoint directly.
+New tasks can launch Codex against a remote `llama-server` endpoint directly.
 
-- Select `Remote llama.cpp` in the new-session panel.
+- Select `Remote llama.cpp` under the optional task settings.
 - Enter the server base URL, such as `http://192.168.1.243:8081`.
 - Enter the model name used by that server.
 - Leave the API key as the default `llama.cpp` unless your server expects something else.
@@ -59,7 +62,8 @@ The new session drawer can launch Codex against a remote `llama-server` endpoint
 ## Desktop ergonomics
 
 - Window size and maximized state are remembered between launches.
-- `Ctrl/Cmd+N` opens the new-session drawer from the native app menu.
+- The last task reconnects automatically at startup; a task is created automatically when none exist.
+- `Ctrl/Cmd+N` opens the optional folder/task dialog from the native app menu.
 - The app uses a real Linux-style application menu for reload, zoom, developer tools, and fullscreen.
 - The Settings panel makes local-provider isolation, web search, and multi-agent behavior explicit and persistent.
 
@@ -85,14 +89,10 @@ consiglio/
     main.ts             # Electron main process
     preload.ts          # contextBridge API
     renderer.tsx        # React entry point
-    App.tsx             # Three-pane layout (sessions | timeline | diff/terminal)
+    App.tsx             # Task rail, conversation, and file-pane shell
     features/           # Feature modules
       sessions/         # Session list, event timeline
-      diffs/            # Diff viewer
-      approvals/        # Approval queue
-      tasks/            # Task board
-      workspaces/       # Workspace dashboard
-      settings/         # Configuration
+      files/            # Workspace file browser and previews
     components/         # Shared UI components (TerminalPane, etc.)
   tests/fixtures/codex-events/  # Protocol event fixtures for regression tests
 ```

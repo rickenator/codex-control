@@ -22,16 +22,16 @@ class ErrorBoundary extends React.Component<
       const preloadErr = window.__PRELOAD_ERROR__ as Error | undefined;
       return (
         <div style={{
-          height: '100%', width: '100%', background: '#1a1a2e', color: '#ff6b6b',
+          height: '100%', width: '100%', background: '#070b14', color: '#f0f6fc',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          padding: 40, fontFamily: 'monospace', fontSize: 14,
+          padding: 40, fontFamily: '"Segoe UI", system-ui, sans-serif', fontSize: 14,
         }}>
           <h2 style={{ marginBottom: 16 }}>Consiglio crashed on startup</h2>
-          <pre style={{ background: '#0d1117', padding: 16, borderRadius: 8, maxWidth: 600, overflow: 'auto' }}>
+          <pre style={{ background: '#0d1320', padding: 16, borderRadius: 8, maxWidth: 600, overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)' }}>
             {this.state.error}
           </pre>
           {preloadErr && (
-            <div style={{ marginTop: 20, color: '#ffa500' }}>
+            <div style={{ marginTop: 20, color: '#d29922' }}>
               <strong>Preload error:</strong> {preloadErr.message}
             </div>
           )}

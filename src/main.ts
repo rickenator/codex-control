@@ -14,11 +14,17 @@ type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
 
 interface SessionState {
   id: string;
-  pty: IPty;
+  pty: IPty | null;
   repository: string;
   branch: string;
   status: SessionStatus;
   terminalBuffer: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  codexThreadId?: string;
+  jsonRemainder: string;
+  lastStructuredError?: string;
+  processedItemIds: Set<string>;
 }
 
 
@@ -53,6 +59,7 @@ export interface SessionOptions {
     apiKey?: string;
   };
   defaultModel?: string;
+  codexThreadId?: string;
 }
 
 interface SessionRecord {
@@ -62,6 +69,7 @@ interface SessionRecord {
   provider?: Provider;
   model?: string;
   baseUrl?: string;
+  codexThreadId?: string;
   status: SessionStatus;
   created_at: number;
   updated_at: number;
@@ -297,6 +305,24 @@ function createWindow() {
   mainWindow.on('close', () => {
     saveWindowState(mainWindow);
   });
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (params.selectionText) {
+      template.push({ label: 'Copy', role: 'copy' });
+    }
+    if (params.isEditable) {
+      if (template.length > 0) template.push({ type: 'separator' });
+      template.push(
+        { label: 'Cut', role: 'cut', enabled: Boolean(params.selectionText) },
+        { label: 'Paste', role: 'paste' },
+        { type: 'separator' },
+        { label: 'Select All', role: 'selectAll' },
+      );
+    } else if (!params.selectionText) {
+      template.push({ label: 'Select All', role: 'selectAll' });
+    }
+    Menu.buildFromTemplate(template).popup({ window: mainWindow || undefined });
+  });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
@@ -368,6 +394,14 @@ function initStore() {
     console.error('Could not load saved sessions:', error);
   }
   for (const record of records.values()) {
+    const sessionEvents = events.get(record.id) || [];
+    const lastProtocolError = [...sessionEvents]
+      .reverse()
+      .find(event => event.type === 'error' && /output of tool call should be ['"]?input text/i.test(event.content));
+    const lastResponse = [...sessionEvents].reverse().find(event => event.type === 'response');
+    if (lastProtocolError && (!lastResponse || lastProtocolError.timestamp > lastResponse.timestamp)) {
+      record.codexThreadId = undefined;
+    }
     if (record.status === 'running') record.status = 'stopped';
   }
   saveStore();
@@ -480,8 +514,136 @@ function recordEvent(sessionId: string, type: string, content: string) {
 
 function terminalOutput(sessionId: string, data: string) {
   const state = sessions.get(sessionId);
-  if (state) state.terminalBuffer = (state.terminalBuffer + data).slice(-1_000_000);
+  if (state) {
+    state.terminalBuffer = (state.terminalBuffer + data).slice(-1_000_000);
+    consumeExecEvents(state, data);
+  }
   mainWindow?.webContents.send('codex:terminal-output', { sessionId, data });
+}
+
+function consumeExecEvents(state: SessionState, data: string) {
+  const combined = state.jsonRemainder + data;
+  const lines = combined.split(/\r?\n/);
+  state.jsonRemainder = lines.pop() || '';
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as {
+        type?: string;
+        thread_id?: string;
+        message?: string;
+        error?: { message?: string };
+        item?: {
+          id?: string;
+          type?: string;
+          text?: string;
+          content?: string;
+          aggregated_output?: string;
+          command?: string;
+          exit_code?: number | null;
+        };
+      };
+      if (event.type === 'item.completed' && event.item?.id) {
+        if (state.processedItemIds.has(event.item.id)) continue;
+        state.processedItemIds.add(event.item.id);
+      }
+      if (event.type === 'thread.started' && event.thread_id) {
+        state.codexThreadId = event.thread_id;
+        const record = records.get(state.id);
+        if (record) {
+          record.codexThreadId = event.thread_id;
+          record.updated_at = Date.now();
+          saveStore();
+        }
+      }
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+        const text = typeof event.item.text === 'string' ? event.item.text : event.item.content;
+        if (text?.trim()) recordEvent(state.id, 'response', text.trim());
+      }
+      if (event.type === 'item.completed' && event.item?.type === 'command_execution') {
+        recordEvent(state.id, 'tool_call', event.item.command || 'Ran a command');
+        const imagePaths = extractWorkspaceImages(state.repository, event.item.aggregated_output || '');
+        if (imagePaths.length > 0) {
+          recordEvent(state.id, 'files', JSON.stringify({ paths: imagePaths }));
+        }
+      }
+      if (event.type === 'error' && event.message) {
+        recordStructuredError(state, event.message);
+      }
+      if (event.type === 'turn.failed' && event.error?.message) {
+        recordStructuredError(state, event.error.message);
+      }
+    } catch {
+      // The PTY can split JSONL across chunks; incomplete fragments are retained above.
+    }
+  }
+}
+
+function recordStructuredError(state: SessionState, message: string) {
+  const clean = decodeStructuredError(message);
+  if (!clean || clean === state.lastStructuredError) return;
+  state.lastStructuredError = clean;
+  if (/output of tool call should be ['"]?input text/i.test(clean)) {
+    state.codexThreadId = undefined;
+    const record = records.get(state.id);
+    if (record) {
+      record.codexThreadId = undefined;
+      record.updated_at = Date.now();
+      saveStore();
+    }
+  }
+  recordEvent(state.id, 'error', clean);
+}
+
+function decodeStructuredError(message: string) {
+  try {
+    const parsed = JSON.parse(message) as { error?: { message?: string } };
+    return parsed.error?.message || message;
+  } catch {
+    return message;
+  }
+}
+
+function extractWorkspaceImages(repository: string, output: string) {
+  const root = path.resolve(repository);
+  return output
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(candidate => path.resolve(candidate))
+    .filter(candidate => candidate === root || candidate.startsWith(`${root}${path.sep}`))
+    .filter(candidate => /\.(png|jpe?g|gif|webp|bmp)$/i.test(candidate) && fs.existsSync(candidate))
+    .slice(0, 12);
+}
+
+function findWorkspaceImages(repository: string, limit = 12) {
+  const images: string[] = [];
+  const visit = (directory: string, depth: number) => {
+    if (images.length >= limit || depth > 4) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (images.length >= limit || entry.name.startsWith('.')) break;
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(fullPath, depth + 1);
+      else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(entry.name)) images.push(fullPath);
+    }
+  };
+  visit(path.resolve(repository), 0);
+  return images;
+}
+
+function isImageDisplayRequest(sessionId: string, prompt: string) {
+  const normalized = prompt.trim().toLowerCase();
+  if (/\b(show|display|preview|open|view)\b.*\b(images?|pictures?|photos?)\b/.test(normalized)) return true;
+  if (!/^(do|show|try) (it|that) again[.!]?$/i.test(normalized)) return false;
+  const previousPrompt = [...(events.get(sessionId) || [])]
+    .reverse()
+    .find(event => event.type === 'prompt');
+  return Boolean(previousPrompt && /\b(images?|pictures?|photos?)\b/i.test(previousPrompt.content));
 }
 
 function getPendingApprovals(sessionId?: string) {
@@ -693,7 +855,7 @@ function launchSession(
   isReconnect: boolean,
 ) {
   const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
-  const args = ['--no-alt-screen', '-C', repository];
+  const args: string[] = [];
   const env = { ...process.env };
   const isLocalOpenAiCompatibleProvider = provider === 'remote_llamacpp' || provider === 'lan';
   if (isLocalOpenAiCompatibleProvider) {
@@ -708,9 +870,7 @@ function launchSession(
       '-c', 'model_supports_reasoning_summaries=false',
       '-c', 'model_reasoning_summary="none"',
     );
-    if (behavior.enableWebSearch) {
-      args.push('--search');
-    } else {
+    if (!behavior.enableWebSearch) {
       args.push('-c', 'web_search="disabled"');
     }
   }
@@ -817,14 +977,20 @@ function launchSession(
     });
   }
 
-  const terminal = pty.spawn(codexPath, args, {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 36,
-    cwd: repository,
+  const state: SessionState = {
+    id: sessionId,
+    pty: null,
+    repository,
+    branch,
+    status: 'running',
+    terminalBuffer: '',
+    args,
     env,
-  });
-  const state: SessionState = { id: sessionId, pty: terminal, repository, branch, status: 'running', terminalBuffer: '' };
+    codexThreadId: options.codexThreadId,
+    jsonRemainder: '',
+    lastStructuredError: undefined,
+    processedItemIds: new Set(),
+  };
   sessions.set(sessionId, state);
   records.set(sessionId, {
     id: sessionId,
@@ -844,31 +1010,21 @@ function launchSession(
         : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
         ? lanProviderBaseUrl(getLanProvider(options.selectedLanProviderId)!)
         : undefined,
+    codexThreadId: options.codexThreadId,
     status: 'running',
     created_at: Date.now(),
     updated_at: Date.now(),
   });
   saveStore();
   emitSessionUpdate();
-  recordEvent(sessionId, 'system', `${isReconnect ? 'Reconnected' : 'Started'} Codex in ${repository}`);
-
-  terminal.onData((data: string) => terminalOutput(sessionId, data));
-  terminal.onExit(({ exitCode }: { exitCode: number }) => {
-    state.status = exitCode === 0 ? 'completed' : 'failed';
-    const record = records.get(sessionId);
-    if (record) { record.status = state.status; record.updated_at = Date.now(); }
-    saveStore();
-    emitSessionUpdate();
-    recordEvent(sessionId, 'system', `Codex exited with code ${exitCode}`);
-    sessions.delete(sessionId);
-  });
-  return { sessionId, pid: terminal.pid, repository, branch };
+  recordEvent(sessionId, 'system', `${isReconnect ? 'Reconnected' : 'Ready'} in ${repository}`);
+  return { sessionId, repository, branch };
 }
 
 function stopSession(sessionId: string) {
   const state = sessions.get(sessionId);
   if (!state) return false;
-  state.pty.kill();
+  state.pty?.kill();
   sessions.delete(sessionId);
   const record = records.get(sessionId);
   if (record) { record.status = 'stopped'; record.updated_at = Date.now(); }
@@ -880,13 +1036,118 @@ function stopSession(sessionId: string) {
 
 function deleteSession(sessionId: string) {
   const state = sessions.get(sessionId);
-  if (state) { try { state.pty.kill(); } catch {} sessions.delete(sessionId); }
+  if (state) { try { state.pty?.kill(); } catch {} sessions.delete(sessionId); }
   records.delete(sessionId);
   events.delete(sessionId);
   saveStore();
   emitSessionUpdate();
   return true;
 }
+
+function sendSessionPrompt(sessionId: string, input: string) {
+  const state = sessions.get(sessionId);
+  const prompt = input.trim();
+  if (!state || !prompt || state.pty) return false;
+
+  const shouldDisplayImages = isImageDisplayRequest(sessionId, prompt);
+  recordEvent(sessionId, 'prompt', prompt);
+  if (shouldDisplayImages) {
+    const imagePaths = findWorkspaceImages(state.repository);
+    if (imagePaths.length === 0) {
+      recordEvent(sessionId, 'response', 'No previewable images were found in this task directory.');
+    } else {
+      recordEvent(sessionId, 'response', `Showing ${imagePaths.length} representative image${imagePaths.length === 1 ? '' : 's'} from this task.`);
+      recordEvent(sessionId, 'files', JSON.stringify({ paths: imagePaths }));
+    }
+    return true;
+  }
+
+  const commandArgs = state.codexThreadId
+    ? ['exec', 'resume', '--json', '--skip-git-repo-check', ...state.args, state.codexThreadId, prompt]
+    : ['exec', '--json', '--skip-git-repo-check', ...state.args, prompt];
+  state.jsonRemainder = '';
+  state.lastStructuredError = undefined;
+  state.processedItemIds.clear();
+  const terminal = pty.spawn(process.env.CODEX_BIN || 'codex', commandArgs, {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 36,
+    cwd: state.repository,
+    env: state.env,
+  });
+  state.pty = terminal;
+  terminal.onData((data: string) => terminalOutput(sessionId, data));
+  terminal.onExit(({ exitCode }: { exitCode: number }) => {
+    state.pty = null;
+    if (state.jsonRemainder.trim()) {
+      consumeExecEvents(state, `${state.jsonRemainder}\n`);
+      state.jsonRemainder = '';
+    }
+    if (exitCode !== 0 && !state.lastStructuredError) {
+      const detail = terminalFailureDetail(state.terminalBuffer);
+      recordEvent(sessionId, 'error', detail || `Codex stopped with code ${exitCode}. Check the provider settings and try again.`);
+    }
+  });
+  return true;
+}
+
+function terminalFailureDetail(buffer: string) {
+  const lines = buffer
+    .replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('{'));
+  const uniqueLines = lines.filter((line, index) => lines.indexOf(line) === index);
+  return uniqueLines.slice(-4).join(' ').slice(0, 600);
+}
+
+function resolveSessionPath(sessionId: string, candidatePath: string) {
+  const repository = sessions.get(sessionId)?.repository || records.get(sessionId)?.repository;
+  if (!repository) throw new Error('Task workspace is unavailable');
+  const root = path.resolve(repository);
+  const resolved = path.resolve(root, candidatePath || '.');
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error('Path is outside the task workspace');
+  }
+  return { root, resolved };
+}
+
+function listWorkspaceFiles(sessionId: string, relativePath = '') {
+  const { root, resolved } = resolveSessionPath(sessionId, relativePath);
+  return fs.readdirSync(resolved, { withFileTypes: true })
+    .filter(entry => !entry.name.startsWith('.'))
+    .sort((left, right) => Number(right.isDirectory()) - Number(left.isDirectory()) || left.name.localeCompare(right.name))
+    .slice(0, 500)
+    .map(entry => ({
+      name: entry.name,
+      path: path.relative(root, path.join(resolved, entry.name)),
+      isDirectory: entry.isDirectory(),
+      isImage: !entry.isDirectory() && /\.(png|jpe?g|gif|webp|bmp)$/i.test(entry.name),
+    }));
+}
+
+function readWorkspaceFile(sessionId: string, candidatePath: string) {
+  const { root, resolved } = resolveSessionPath(sessionId, candidatePath);
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) throw new Error('Path is not a file');
+  if (stat.size > 20 * 1024 * 1024) throw new Error('File is too large to preview');
+  const relativePath = path.relative(root, resolved);
+  const extension = path.extname(resolved).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+  };
+  const mimeType = mimeTypes[extension];
+  if (mimeType) {
+    return { kind: 'image', path: relativePath, dataUrl: `data:${mimeType};base64,${fs.readFileSync(resolved).toString('base64')}` };
+  }
+  return { kind: 'text', path: relativePath, text: fs.readFileSync(resolved, 'utf8').slice(0, 1_000_000) };
+}
+
 ipcMain.handle('session:start', (_event, options: SessionOptions) => startSession(options || {}));
 ipcMain.handle('session:stop', (_event, sessionId: string) => stopSession(sessionId));
 ipcMain.handle('session:delete', (_event, sessionId: string) => deleteSession(sessionId));
@@ -894,15 +1155,18 @@ ipcMain.handle('session:list', () => [...records.values()].sort((left, right) =>
 ipcMain.handle('session:events', (_event, sessionId: string) => events.get(sessionId) || []);
 ipcMain.handle('session:terminal-buffer', (_event, sessionId: string) => sessions.get(sessionId)?.terminalBuffer || '');
 ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId: string; input: string }) => {
-  const state = sessions.get(sessionId);
-  if (!state || !input) return false;
-  state.pty.write(input);
-  return true;
+  return sendSessionPrompt(sessionId, input);
+});
+ipcMain.handle('workspace:list-files', (_event, { sessionId, path: relativePath }: { sessionId: string; path?: string }) => {
+  return listWorkspaceFiles(sessionId, relativePath);
+});
+ipcMain.handle('workspace:read-file', (_event, { sessionId, path: filePath }: { sessionId: string; path: string }) => {
+  return readWorkspaceFile(sessionId, filePath);
 });
 ipcMain.handle('session:resize', (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
   const state = sessions.get(sessionId);
   if (!state) return false;
-  state.pty.resize(Math.max(2, cols), Math.max(2, rows));
+  state.pty?.resize(Math.max(2, cols), Math.max(2, rows));
   return true;
 });
 ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
@@ -920,6 +1184,7 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
           apiKey: appSettings.remoteLlamaCpp.apiKey,
         }
       : undefined,
+    codexThreadId: record.codexThreadId,
   }, true);
   const updated = records.get(sessionId);
   if (updated) {

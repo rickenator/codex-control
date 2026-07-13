@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import SessionList from './features/sessions/SessionList';
 import EventTimeline from './features/sessions/EventTimeline';
+import FileBrowser from './features/files/FileBrowser';
 
 type LanProviderConfig = {
   id: string;
@@ -87,6 +88,7 @@ export default function App() {
   const [discovering, setDiscovering] = useState(false);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [showLanSettings, setShowLanSettings] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -109,7 +111,24 @@ export default function App() {
 
   useEffect(() => {
     window.codexApi.listSessions()
-      .then(setSessions)
+      .then(async (loadedSessions) => {
+        setSessions(loadedSessions);
+        const preferredSession = selectedSession && loadedSessions.some(session => session.id === selectedSession)
+          ? selectedSession
+          : loadedSessions[0]?.id;
+        if (!preferredSession) {
+          const created = await window.codexApi.startSession({});
+          const updatedSessions = await window.codexApi.listSessions();
+          setSessions(updatedSessions);
+          setSelectedSession(created.sessionId);
+          return;
+        }
+        setSelectedSession(preferredSession);
+        const preferredRecord = loadedSessions.find(session => session.id === preferredSession);
+        if (preferredRecord?.status !== 'running') {
+          await window.codexApi.reconnectSession(preferredSession);
+        }
+      })
       .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load sessions: ${error.message}` }));
     window.codexApi.getSettings()
       .then(setSettings)
@@ -350,6 +369,30 @@ export default function App() {
     }
   };
 
+  const handleTestProviderConnection = async (provider: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+    label: string;
+  }) => {
+    setTestingConnection(provider.label);
+    try {
+      const result = await window.codexApi.testRemoteLlamaCpp({
+        baseUrl: provider.baseUrl,
+        model: provider.model,
+        apiKey: provider.apiKey || 'llama.cpp',
+      });
+      setNotice({
+        kind: result.ok ? 'success' : 'error',
+        message: `${provider.label}: ${result.message}`,
+      });
+    } catch (e) {
+      setNotice({ kind: 'error', message: `Connection test failed: ${(e as Error).message}` });
+    } finally {
+      setTestingConnection(null);
+    }
+  };
+
   const handleSettingsChange = async (nextSettings: AppSettings) => {
     try {
       setSettings(nextSettings);
@@ -386,11 +429,7 @@ export default function App() {
   };
 
   const handleRequestNewSession = async () => {
-    try {
-      await window.codexApi.requestNewSession();
-    } catch (e) {
-      setNotice({ kind: 'error', message: `Could not open new session drawer: ${(e as Error).message}` });
-    }
+    await handleStartSession({});
   };
 
   const handleRefreshStartupStatus = async () => {
@@ -446,7 +485,7 @@ export default function App() {
 
       {/* Recovered Sessions Banner */}
       {recoveredSessions.length > 0 && (
-        <div className="codex-banner">
+        <div className="codex-banner codex-recovery-banner">
           <span style={{ fontSize: 13, color: '#58a6ff' }}>
             {recoveredSessions.length} session{recoveredSessions.length === 1 ? '' : 's'} recovered from the last run
           </span>
@@ -460,7 +499,7 @@ export default function App() {
       )}
 
       {/* Health Check Banner */}
-      <section className="codex-banner" style={{ alignItems: 'stretch', background: 'rgba(255,255,255,0.035)', borderColor: healthSummary.borderColor }}>
+      <section className="codex-banner codex-health-banner" style={{ alignItems: 'stretch', background: 'rgba(255,255,255,0.035)', borderColor: healthSummary.borderColor }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: healthSummary.color }}>{healthSummary.message}</span>
           {startupStatus && (
@@ -483,7 +522,7 @@ export default function App() {
 
       {/* Approval Banner — full-width, impossible to miss */}
       {pendingApprovals.length > 0 && (
-        <section className="codex-banner" style={{
+        <section className="codex-banner codex-approval-banner" style={{
           background: 'rgba(210, 153, 34, 0.12)',
           borderColor: 'rgba(210, 153, 34, 0.4)',
           flexDirection: 'column',
@@ -557,25 +596,6 @@ export default function App() {
             : 'Start or select a session to continue'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          {(['remote_llamacpp', 'ollama', 'default', 'gpt56', 'lan'] as const).map(p => (
-            <button
-              key={p}
-              onClick={() => void handleQuickProviderChange(p)}
-              className={`codex-button ${quickProvider === p ? 'codex-button-primary' : 'codex-button-secondary'}`}
-              style={{ fontSize: 10, padding: '3px 8px', whiteSpace: 'nowrap' }}
-              title={p === 'remote_llamacpp' ? 'Remote llama.cpp (godzilla)' :
-                     p === 'ollama' ? 'Ollama (local)' :
-                     p === 'default' ? 'Default Codex' :
-                     p === 'gpt56' ? 'GPT-5.6' : 'LAN Provider'}
-            >
-              {p === 'remote_llamacpp' ? 'llama.cpp' :
-               p === 'ollama' ? 'Ollama' :
-               p === 'default' ? 'Default' :
-               p === 'gpt56' ? 'GPT-5.6' : 'LAN'}
-            </button>
-          ))}
-        </div>
         <button
           className="codex-button codex-button-secondary"
           onClick={() => setShowSettings(true)}
@@ -586,21 +606,8 @@ export default function App() {
         </button>
         <div className="codex-chip-list">
           <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
-          <Pill label="Model" value={
-            activeSession?.model ||
-            settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.model :
-            settings.defaultProvider === "ollama" ? settings.ollama.model :
-            settings.defaultProvider === "default" ? (settings.defaultModel || settings.remoteLlamaCpp.model) :
-            settings.defaultProvider === "gpt56" ? "gpt-5.6" :
-            settings.defaultProvider === "lan" ? (settings.lanProviders[0]?.model || "Not set") :
-            settings.remoteLlamaCpp.model
-          } />
-          <Pill label="Endpoint" value={
-            settings.defaultProvider === "remote_llamacpp" ? settings.remoteLlamaCpp.baseUrl :
-            settings.defaultProvider === "ollama" ? settings.ollama.baseUrl :
-            settings.defaultProvider === "lan" ? (settings.lanProviders[0] ? `${settings.lanProviders[0].host}:${settings.lanProviders[0].port}` : "Not set") :
-            "N/A"
-          } />
+          <Pill label="Model" value={activeSession?.model || getActiveModelLabel(settings)} />
+          <Pill label="Endpoint" value={getActiveEndpointLabel(settings)} />
           {pendingApprovalCount > 0 && (
             <div className="codex-chip" style={{ borderColor: '#d2992266', background: 'rgba(210, 153, 34, 0.1)' }}>
               <span className="codex-chip-label">⏳</span>
@@ -770,7 +777,12 @@ export default function App() {
                         <span style={{ fontWeight: 600 }}>{p.name || p.host}:{p.port}</span>
                         <button
                           className="codex-button codex-button-secondary"
-                          onClick={() => handleTestConnection('remote_llamacpp')}
+                          onClick={() => handleTestProviderConnection({
+                            baseUrl: p.host.startsWith('http://') || p.host.startsWith('https://') ? p.host : `http://${p.host}:${p.port}`,
+                            model: p.model,
+                            apiKey: p.apiKey,
+                            label: p.name || `${p.host}:${p.port}`,
+                          })}
                           disabled={testingConnection !== null}
                           style={{ fontSize: 10, padding: '2px 6px' }}
                           title={`Test ${p.name || p.host}`}
@@ -832,18 +844,14 @@ export default function App() {
         <section className="codex-panel" style={{ flex: 1, minWidth: 0 }}>
           <div className="codex-panel-header">
             <div className="codex-panel-title">
-              <span className="codex-kicker">Session console</span>
-              <span className="codex-panel-heading">{selectedSession || 'Select a session'}</span>
+              <span className="codex-panel-heading">
+                {activeSession?.repository ? sessionLabel(activeSession.repository) : 'New task'}
+              </span>
+              <span className="codex-kicker">
+                {activeSession ? `${activeSession.branch || 'current branch'} · ${activeSession.model || 'Codex'}` : 'Start a task or choose one from the sidebar'}
+              </span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {activeSession?.repository && (
-                <button
-                  className="codex-button codex-button-secondary"
-                  onClick={() => handleCopyText(activeSession.repository, 'Repository path')}
-                >
-                  Copy repo
-                </button>
-              )}
               {activeSession?.repository && (
                 <button
                   className="codex-button codex-button-secondary"
@@ -852,6 +860,21 @@ export default function App() {
                   Open folder
                 </button>
               )}
+              {selectedSession && (
+                <button
+                  className={`codex-button ${showFiles ? 'codex-button-info' : 'codex-button-secondary'}`}
+                  onClick={() => setShowFiles((current) => !current)}
+                >
+                  Files
+                </button>
+              )}
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => setShowLanSettings(true)}
+                title="LAN providers"
+              >
+                Providers
+              </button>
               {activeSession?.status === 'running' && selectedSession && (
                 <button
                   className="codex-button codex-button-danger"
@@ -862,13 +885,21 @@ export default function App() {
               )}
             </div>
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', position: 'relative' }}>
             <EventTimeline
               sessionId={selectedSession}
               compact
-              onCopySessionId={(value) => handleCopyText(value, 'Event ID')}
+              onCopySessionId={(value) => handleCopyText(value, 'Message')}
               onRequestNewSession={handleRequestNewSession}
+              onError={(message) => setNotice({ kind: 'error', message })}
             />
+            {showFiles && selectedSession && (
+              <FileBrowser
+                sessionId={selectedSession}
+                onClose={() => setShowFiles(false)}
+                onError={(message) => setNotice({ kind: 'error', message })}
+              />
+            )}
           </div>
         </section>
       </div>
@@ -1059,6 +1090,36 @@ function sessionLabel(repository?: string) {
   if (!trimmed) return 'Untitled workspace';
   const segments = trimmed.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] || trimmed;
+}
+
+function getActiveModelLabel(settings: {
+  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+  ollama: { model: string };
+  remoteLlamaCpp: { model: string };
+  lanProviders: Array<{ model: string }>;
+  defaultModel?: string;
+}) {
+  if (settings.defaultProvider === 'remote_llamacpp') return settings.remoteLlamaCpp.model || 'Not set';
+  if (settings.defaultProvider === 'ollama') return settings.ollama.model || 'Not set';
+  if (settings.defaultProvider === 'default') return settings.defaultModel || settings.remoteLlamaCpp.model || 'Not set';
+  if (settings.defaultProvider === 'gpt56') return 'gpt-5.6';
+  if (settings.defaultProvider === 'lan') return settings.lanProviders[0]?.model || 'Not set';
+  return 'Not set';
+}
+
+function getActiveEndpointLabel(settings: {
+  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
+  ollama: { baseUrl: string };
+  remoteLlamaCpp: { baseUrl: string };
+  lanProviders: Array<{ host: string; port: number }>;
+}) {
+  if (settings.defaultProvider === 'remote_llamacpp') return settings.remoteLlamaCpp.baseUrl || 'Not set';
+  if (settings.defaultProvider === 'ollama') return settings.ollama.baseUrl || 'Not set';
+  if (settings.defaultProvider === 'lan') {
+    const first = settings.lanProviders[0];
+    return first ? `${first.host}:${first.port}` : 'Not set';
+  }
+  return 'N/A';
 }
 
 
