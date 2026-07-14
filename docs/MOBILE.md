@@ -67,7 +67,7 @@ cd mobile/android
 ./gradlew assembleDebug
 ```
 
-The unsigned debug APK is written under `mobile/android/app/build/outputs/apk/debug/`. GitHub Actions builds and retains that APK for each validated commit. iOS CI compiles the simulator application without code signing.
+The unsigned debug APK is written under `mobile/android/app/build/outputs/apk/debug/`. GitHub Actions builds and retains that APK for each validated commit. iOS CI compiles, verifies, and retains the unsigned simulator `.app` bundle.
 
 ## Security model
 
@@ -90,4 +90,4 @@ The repository contains complete Android and iOS projects, but store-ready artif
 - an Android upload keystore plus passwords for an AAB; and
 - an Apple Developer team, distribution certificate, and provisioning profile for an iOS archive.
 
-Until those credentials are configured, CI proves Android compilation with an unsigned debug APK and iOS compilation with an unsigned simulator build. This is deliberate: the pipeline does not claim a production signature it cannot verify.
+Until those credentials are configured, CI proves Android compilation with an unsigned debug APK and iOS compilation with an unsigned simulator app, retaining both artifacts for inspection. This is deliberate: the pipeline does not claim a production signature it cannot verify.
