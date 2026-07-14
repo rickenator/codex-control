@@ -1,8 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApprovalRecord, BridgeClient, SessionEvent, SessionRecord } from './api';
-
-const savedEndpoint = window.localStorage.getItem('consiglio:mobile-endpoint') || '';
+import { clearPairing, loadPairing, savePairing } from './secure-pairing';
 
 function shortRepository(repository: string) {
   const parts = repository.split(/[\\/]/).filter(Boolean);
@@ -16,7 +15,7 @@ function eventLabel(type: string) {
 }
 
 export default function App() {
-  const [endpoint, setEndpoint] = useState(savedEndpoint);
+  const [endpoint, setEndpoint] = useState('');
   const [token, setToken] = useState('');
   const [client, setClient] = useState<BridgeClient | null>(null);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
@@ -25,26 +24,86 @@ export default function App() {
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(true);
+  const [hasSavedPairing, setHasSavedPairing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selected = useMemo(() => sessions.find(session => session.id === selectedId) || null, [sessions, selectedId]);
 
-  const refresh = useCallback(async (activeClient = client, activeSessionId = selectedId) => {
-    if (!activeClient) return;
+  const resetClientState = useCallback(() => {
+    setClient(null);
+    setToken('');
+    setSessions([]);
+    setEvents([]);
+    setApprovals([]);
+    setSelectedId(null);
+    setHasSavedPairing(false);
+  }, []);
+
+  const handleClientError = useCallback(async (failure: unknown) => {
+    const message = failure instanceof Error ? failure.message : String(failure);
+    if (/unauthorized|401/i.test(message)) {
+      await clearPairing().catch(() => undefined);
+      resetClientState();
+      setError('This pairing was revoked. Create a new token from Consiglio on the desktop.');
+      return;
+    }
+    setError(message);
+  }, [resetClientState]);
+
+  const hydrate = useCallback(async (activeClient: BridgeClient, activeSessionId: string | null) => {
     const [nextSessions, nextApprovals] = await Promise.all([activeClient.sessions(), activeClient.approvals()]);
     setSessions(nextSessions);
     const nextId = activeSessionId && nextSessions.some(session => session.id === activeSessionId) ? activeSessionId : nextSessions[0]?.id || null;
     setSelectedId(nextId);
     setApprovals(nextApprovals);
     setEvents(nextId ? await activeClient.events(nextId) : []);
-  }, [client, selectedId]);
+  }, []);
+
+  const refresh = useCallback(async (activeClient = client, activeSessionId = selectedId) => {
+    if (!activeClient) return;
+    await hydrate(activeClient, activeSessionId);
+  }, [client, hydrate, selectedId]);
+
+  const restoreSavedPairing = useCallback(async () => {
+    setRestoring(true);
+    setError(null);
+    try {
+      const saved = await loadPairing();
+      if (!saved) {
+        setHasSavedPairing(false);
+        return;
+      }
+      setHasSavedPairing(true);
+      setEndpoint(saved.endpoint);
+      const nextClient = new BridgeClient(saved);
+      await nextClient.health();
+      await hydrate(nextClient, null);
+      setClient(nextClient);
+    } catch (restoreError) {
+      const message = (restoreError as Error).message;
+      if (/unauthorized|401/i.test(message)) {
+        await clearPairing().catch(() => undefined);
+        resetClientState();
+        setError('This pairing was revoked. Create a new token from Consiglio on the desktop.');
+      } else {
+        setError(`Could not reconnect the saved device: ${message}`);
+      }
+    } finally {
+      setRestoring(false);
+    }
+  }, [hydrate, resetClientState]);
+
+  useEffect(() => {
+    void restoreSavedPairing();
+  }, [restoreSavedPairing]);
 
   useEffect(() => {
     if (!client) return;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh().catch(error => setError((error as Error).message));
+      if (document.visibilityState === 'visible') void refresh().catch(handleClientError);
     }, 2_500);
     return () => window.clearInterval(timer);
-  }, [client, refresh]);
+  }, [client, handleClientError, refresh]);
 
   async function connect(event: FormEvent) {
     event.preventDefault();
@@ -53,18 +112,24 @@ export default function App() {
     try {
       const nextClient = new BridgeClient({ endpoint, token });
       await nextClient.health();
-      window.localStorage.setItem('consiglio:mobile-endpoint', nextClient.endpoint);
+      await savePairing({ endpoint: nextClient.endpoint, token });
       setEndpoint(nextClient.endpoint);
+      setHasSavedPairing(true);
+      setToken('');
+      await hydrate(nextClient, null);
       setClient(nextClient);
-      await refresh(nextClient, null);
     } catch (error) { setError((error as Error).message); }
     finally { setBusy(false); }
   }
 
   async function selectSession(sessionId: string) {
     if (!client) return;
-    setSelectedId(sessionId);
-    setEvents(await client.events(sessionId));
+    try {
+      setSelectedId(sessionId);
+      setEvents(await client.events(sessionId));
+    } catch (selectError) {
+      await handleClientError(selectError);
+    }
   }
 
   async function submitPrompt(event: FormEvent) {
@@ -76,7 +141,7 @@ export default function App() {
       if (!result.ok) throw new Error('The desktop did not accept the prompt. Reconnect the session and try again.');
       setPrompt('');
       await refresh(client, selected.id);
-    } catch (error) { setError((error as Error).message); }
+    } catch (error) { await handleClientError(error); }
     finally { setBusy(false); }
   }
 
@@ -87,7 +152,7 @@ export default function App() {
       const result = await client[action](selected.id);
       if (!result.ok) throw new Error(`Could not ${action} this session.`);
       await refresh(client, selected.id);
-    } catch (error) { setError((error as Error).message); }
+    } catch (error) { await handleClientError(error); }
     finally { setBusy(false); }
   }
 
@@ -98,8 +163,21 @@ export default function App() {
       const result = await client.decide(approvalId, decision);
       if (!result.ok) throw new Error(`Could not ${decision} this request.`);
       await refresh();
-    } catch (error) { setError((error as Error).message); }
+    } catch (error) { await handleClientError(error); }
     finally { setBusy(false); }
+  }
+
+  async function forgetDevice() {
+    setBusy(true);
+    try {
+      await clearPairing();
+      resetClientState();
+      setError(null);
+    } catch (forgetError) {
+      setError(`Could not remove the saved pairing: ${(forgetError as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!client) {
@@ -109,14 +187,21 @@ export default function App() {
           <div className="mark">C</div>
           <p className="eyebrow">Consiglio mobile</p>
           <h1 id="connect-title">Your agents, within reach.</h1>
-          <p className="lede">Connect to the bridge running on your desktop. The bridge URL must be protected by HTTPS.</p>
-          <form onSubmit={connect}>
-            <label>Bridge URL<input type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="https://consiglio.example.ts.net" required /></label>
-            <label>Pairing token<input type="password" value={token} onChange={event => setToken(event.target.value)} minLength={32} autoComplete="off" required /></label>
-            {error && <p className="error" role="alert">{error}</p>}
-            <button className="primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect securely'}</button>
-          </form>
-          <p className="privacy-note">The token stays in memory for this app session and is not written to mobile storage.</p>
+          {restoring ? (
+            <div className="restore-state" role="status"><span className="restore-spinner" />Unlocking secure pairing…</div>
+          ) : (
+            <>
+              <p className="lede">Connect to the bridge running on your desktop. The bridge URL must be protected by HTTPS.</p>
+              {hasSavedPairing && <button className="saved-pairing" type="button" onClick={() => void restoreSavedPairing()}>Retry saved pairing</button>}
+              <form onSubmit={connect}>
+                <label>Bridge URL<input type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="https://consiglio.example.ts.net" required /></label>
+                <label>Pairing token<input type="password" value={token} onChange={event => setToken(event.target.value)} minLength={32} autoComplete="off" required /></label>
+                {error && <p className="error" role="alert">{error}</p>}
+                <button className="primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect securely'}</button>
+              </form>
+              <p className="privacy-note">Your token is protected by Android Keystore or iOS Keychain and automatically restored after restart. It is never written to localStorage.</p>
+            </>
+          )}
         </section>
       </main>
     );
@@ -124,7 +209,7 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header><div><p className="eyebrow">Consiglio</p><h1>{selected ? shortRepository(selected.repository) : 'No sessions'}</h1></div><button className="quiet" onClick={() => { setClient(null); setToken(''); }}>Disconnect</button></header>
+      <header><div><p className="eyebrow">Consiglio</p><h1>{selected ? shortRepository(selected.repository) : 'No sessions'}</h1></div><button className="quiet" disabled={busy} onClick={() => void forgetDevice()}>Forget device</button></header>
       {error && <button className="error banner" onClick={() => setError(null)}>{error}</button>}
       <nav className="session-strip" aria-label="Sessions">
         {sessions.map(session => <button key={session.id} className={session.id === selectedId ? 'session active' : 'session'} onClick={() => void selectSession(session.id)}><span className={`status ${session.status}`} /><strong>{shortRepository(session.repository)}</strong><small>{session.branch || session.status}</small></button>)}

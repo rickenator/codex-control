@@ -34,7 +34,7 @@ Set `CONSIGLIO_MOBILE_BRIDGE_PORT` to another valid port when needed. An environ
 
 Place an authenticated TLS tunnel or HTTPS reverse proxy in front of that loopback endpoint. The public mobile URL must use a certificate trusted by the phone. Do not expose port 43117 directly to a LAN or the internet, and do not terminate TLS on an untrusted intermediary.
 
-In the mobile client, enter the HTTPS URL and the same token. The URL is remembered; the token remains only in app memory and must be entered again after disconnecting or restarting the app.
+In the mobile client, enter the HTTPS URL and the same token. After the first successful health check, Android encrypts the pairing with a non-exportable Android Keystore key in the app's no-backup storage; iOS stores it in a device-only Keychain item. The client reconnects automatically after app or phone restarts. **Forget device** removes the local credential. Rotating or disabling pairing on the desktop invalidates it remotely.
 
 ## Build the web and native projects
 
@@ -79,9 +79,10 @@ The unsigned debug APK is written under `mobile/android/app/build/outputs/apk/de
 - Browser origins are limited to the standard Capacitor local origins.
 - Responses disable caching and MIME sniffing.
 - The mobile app accepts HTTPS endpoints; plain HTTP is allowed only for localhost development.
-- The pairing token is never stored in `localStorage` or native preferences.
+- The pairing token is never stored in `localStorage`, native preferences, mobile backups, logs, or analytics. Android stores only AES-GCM ciphertext outside the Keystore; iOS uses a `ThisDeviceOnly` Keychain accessibility class.
+- A revoked token is removed from the phone when the bridge returns an authentication failure. Network failures do not erase a valid saved pairing, so the user can retry after connectivity returns.
 
-Treat a paired phone as an approval-capable operator device. Use its screen lock, rotate or disable pairing immediately when a device is lost, and keep the TLS endpoint private.
+Treat a paired phone as an approval-capable operator device. The secure stores protect credentials at rest; they do not protect an unlocked, compromised, or rooted/jailbroken device. Use its screen lock, rotate or disable pairing immediately when a device is lost, and keep the TLS endpoint private.
 
 ## Production distribution
 

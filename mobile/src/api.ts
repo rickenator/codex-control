@@ -1,7 +1,6 @@
-export interface BridgeConfig {
-  endpoint: string;
-  token: string;
-}
+import { normalizePairingConfig, type PairingConfig } from './pairing-config';
+
+export type BridgeConfig = PairingConfig;
 
 export interface SessionRecord {
   id: string;
@@ -32,24 +31,14 @@ export interface ApprovalRecord {
   status: 'pending' | 'approved' | 'rejected';
 }
 
-function normalizeEndpoint(value: string) {
-  const endpoint = new URL(value.trim());
-  const local = endpoint.hostname === 'localhost' || endpoint.hostname === '127.0.0.1';
-  if (endpoint.protocol !== 'https:' && !(local && endpoint.protocol === 'http:')) {
-    throw new Error('Use an HTTPS bridge URL. Plain HTTP is allowed only for local development.');
-  }
-  endpoint.pathname = endpoint.pathname.replace(/\/$/, '');
-  return endpoint.toString().replace(/\/$/, '');
-}
-
 export class BridgeClient {
   readonly endpoint: string;
   private readonly token: string;
 
   constructor(config: BridgeConfig) {
-    this.endpoint = normalizeEndpoint(config.endpoint);
-    if (config.token.trim().length < 32) throw new Error('The pairing token must contain at least 32 characters.');
-    this.token = config.token.trim();
+    const normalized = normalizePairingConfig(config);
+    this.endpoint = normalized.endpoint;
+    this.token = normalized.token;
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
