@@ -4,6 +4,7 @@ import EventTimeline from './features/sessions/EventTimeline';
 import FileBrowser from './features/files/FileBrowser';
 import SecretsManager from './features/secrets/SecretsManager';
 import MobilePairing from './features/mobile/MobilePairing';
+import DiscussionPanel from './features/discussions/DiscussionPanel';
 
 type LanProviderConfig = {
   id: string;
@@ -94,6 +95,7 @@ export default function App() {
   const [showFiles, setShowFiles] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
   const [showMobilePairing, setShowMobilePairing] = useState(false);
+  const [showDiscussions, setShowDiscussions] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -914,6 +916,13 @@ export default function App() {
                 </button>
               )}
               <button
+                className={`codex-button ${showDiscussions ? 'codex-button-info' : 'codex-button-secondary'}`}
+                onClick={() => setShowDiscussions((current) => !current)}
+                title="Multi-agent discussion"
+              >
+                Discuss
+              </button>
+              <button
                 className="codex-button codex-button-secondary"
                 onClick={() => setShowLanSettings(true)}
                 title="LAN providers"
@@ -952,19 +961,25 @@ export default function App() {
             </div>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', position: 'relative' }}>
-            <EventTimeline
-              sessionId={selectedSession}
-              compact
-              onCopySessionId={(value) => handleCopyText(value, 'Message')}
-              onRequestNewSession={handleRequestNewSession}
-              onError={(message) => setNotice({ kind: 'error', message })}
-            />
-            {showFiles && selectedSession && (
-              <FileBrowser
-                sessionId={selectedSession}
-                onClose={() => setShowFiles(false)}
-                onError={(message) => setNotice({ kind: 'error', message })}
-              />
+            {showDiscussions ? (
+              <DiscussionPanel onError={(message) => setNotice({ kind: 'error', message })} />
+            ) : (
+              <>
+                <EventTimeline
+                  sessionId={selectedSession}
+                  compact
+                  onCopySessionId={(value) => handleCopyText(value, 'Message')}
+                  onRequestNewSession={handleRequestNewSession}
+                  onError={(message) => setNotice({ kind: 'error', message })}
+                />
+                {showFiles && selectedSession && (
+                  <FileBrowser
+                    sessionId={selectedSession}
+                    onClose={() => setShowFiles(false)}
+                    onError={(message) => setNotice({ kind: 'error', message })}
+                  />
+                )}
+              </>
             )}
           </div>
         </section>
