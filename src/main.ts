@@ -2158,6 +2158,15 @@ handleIpc('discussion:list', () => {
   }));
 });
 
+handleIpc('agents:list', () => {
+  return [
+    { id: 'codex', name: 'Codex' },
+    { id: 'open-interpreter', name: 'Open Interpreter' },
+    { id: 'aider', name: 'Aider' },
+    { id: 'claude-code', name: 'Claude Code' },
+  ];
+});
+
 handleIpc('git:status', (_event, repository: string) => gitStatus(resolveKnownWorkspace(repository)));
 handleIpc('git:diff', (_event, repository: string, filePath: string) => {
   const workspace = resolveKnownWorkspace(repository);
