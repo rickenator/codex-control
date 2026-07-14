@@ -148,3 +148,44 @@ test('captures a streamed synthesis response', async () => {
   assert.equal(synthesis?.agentId, 'open-interpreter');
   assert.equal(synthesis?.content, 'open-interpreter response 1');
 });
+
+test('resets the turn budget for each new user message', async () => {
+  const output = collectMessages();
+  const discussion = await DiscussionSession.create({
+    repository: process.cwd(),
+    agents: [{ id: 'codex' }],
+    maxTurns: 1,
+    adapterFactory: fakeFactory({ codex: 'direct' }),
+  }, output.emitters);
+
+  await discussion.sendMessage('First question.');
+  const history = await discussion.sendMessage('Second question.');
+
+  assert.equal(output.errors.length, 0);
+  assert.deepEqual(history.map(message => message.role), ['user', 'agent', 'user', 'agent']);
+  assert.deepEqual(
+    history.filter(message => message.role === 'agent').map(message => message.content),
+    ['codex response 1', 'codex response 2'],
+  );
+});
+
+test('rejects a second message while a streamed turn is still running', async () => {
+  const output = collectMessages();
+  const discussion = await DiscussionSession.create({
+    repository: process.cwd(),
+    agents: [{ id: 'aider' }],
+    maxTurns: 1,
+    adapterFactory: fakeFactory({ aider: 'streamed' }),
+    responseTimeoutMs: 1_000,
+    responseStableMs: 200,
+  }, output.emitters);
+
+  const firstMessage = discussion.sendMessage('First question.');
+  await assert.rejects(
+    discussion.sendMessage('Overlapping question.'),
+    /already processing a message/,
+  );
+  await firstMessage;
+
+  assert.equal(output.errors.length, 0);
+});
