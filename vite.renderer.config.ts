@@ -3,9 +3,8 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-  // Electron loads the renderer from file:// rather than an HTTP server.
-  // Relative URLs keep built JS/CSS next to index.html instead of resolving
-  // to file:///assets/...
+  // Relative URLs keep renderer assets within Consiglio's privileged custom
+  // protocol instead of resolving them against the filesystem root.
   base: './',
   plugins: [react()],
   root: 'src',

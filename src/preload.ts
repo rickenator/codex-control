@@ -1,9 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-console.log('preload: starting');
-
-try {
-  contextBridge.exposeInMainWorld('codexApi', {
+contextBridge.exposeInMainWorld('codexApi', {
     // Sessions
     startSession: (opts: {
       repository?: string;
@@ -192,11 +189,4 @@ try {
       ipcRenderer.invoke('system:check-updates'),
     checkProviders: () =>
       ipcRenderer.invoke('system:check-providers'),
-  });
-
-  console.log('preload: codexApi exposed successfully');
-} catch (error) {
-  console.error('preload: failed to expose codexApi', error);
-  // Make it available so the renderer can show an error
-  (window as any).__PRELOAD_ERROR__ = error;
-}
+});

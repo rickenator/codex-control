@@ -1,14 +1,25 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net, protocol, safeStorage, shell } from 'electron';
 
 import { discoverLlamaCppServers } from './main/lan-discovery';
+import { APP_PROTOCOL, APP_PROTOCOL_HOST, isSafeExternalUrl, isTrustedRendererUrl, resolveRendererAsset } from './main/app-protocol';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
 import path from 'path';
 import fs from 'fs';
+import { pathToFileURL } from 'url';
 import { execFileSync, spawnSync } from 'child_process';
 import packageJson from '../package.json';
 import type { IPty } from 'node-pty';
 
 const pty = require('node-pty') as typeof import('node-pty');
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: APP_PROTOCOL,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+  },
+}]);
 
 type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
 type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
@@ -125,6 +136,33 @@ interface AppSettings {
   };
 }
 
+interface PersistedProviderSettings {
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  encryptedApiKey?: string;
+}
+
+interface PersistedLanProvider extends Omit<LanProvider, 'apiKey'> {
+  apiKey?: string;
+  encryptedApiKey?: string;
+}
+
+interface PersistedAppSettings {
+  defaultProvider?: Provider;
+  ollama?: PersistedProviderSettings;
+  remoteLlamaCpp?: PersistedProviderSettings;
+  lanProviders?: PersistedLanProvider[];
+  defaultModel?: string;
+  localProviderBehavior?: Partial<AppSettings['localProviderBehavior']>;
+}
+
+interface PersistedProviderCredentials {
+  ollama?: string;
+  remoteLlamaCpp?: string;
+  lanProviders: Map<string, string>;
+}
+
 interface ApprovalRequest {
   id: string;
   sessionId: string;
@@ -209,6 +247,9 @@ let appSettings: AppSettings = {
     enableWebSearch: true,
     enableMultiAgent: false,
   },
+};
+let persistedProviderCredentials: PersistedProviderCredentials = {
+  lanProviders: new Map(),
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
@@ -433,7 +474,7 @@ function createWindow() {
     saveWindowState(mainWindow);
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    if (isSafeExternalUrl(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -459,7 +500,21 @@ function createWindow() {
     }
     Menu.buildFromTemplate(template).popup({ window: mainWindow || undefined });
   });
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  void mainWindow.loadURL(`${APP_PROTOCOL}://${APP_PROTOCOL_HOST}/index.html`);
+}
+
+function registerRendererProtocol() {
+  const rendererRoot = path.join(__dirname, 'renderer');
+  protocol.handle(APP_PROTOCOL, request => {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
+    }
+    const assetPath = resolveRendererAsset(rendererRoot, request.url);
+    if (!assetPath || !fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) {
+      return new Response('Not found', { status: 404 });
+    }
+    return net.fetch(pathToFileURL(assetPath).toString(), { method: request.method });
+  });
 }
 
 function saveStore() {
@@ -478,9 +533,63 @@ function emitSessionUpdate() {
   );
 }
 
+function secureStorageBackend() {
+  if (!safeStorage.isEncryptionAvailable()) return { available: false, backend: 'unavailable' };
+  const backend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : 'os_keychain';
+  return { available: backend !== 'basic_text', backend };
+}
+
+function decryptProviderApiKey(encryptedValue?: string, legacyValue?: string) {
+  if (encryptedValue && secureStorageBackend().available) {
+    try {
+      return safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'));
+    } catch (error) {
+      console.error('Could not decrypt a saved provider credential:', error);
+    }
+  }
+  return legacyValue?.trim() || '';
+}
+
+function encryptProviderApiKey(value: string, previousValue?: string) {
+  if (!value) return undefined;
+  if (!secureStorageBackend().available) return previousValue;
+  return safeStorage.encryptString(value).toString('base64');
+}
+
 function saveSettings() {
   if (!settingsPath) return;
-  writeJsonAtomic(settingsPath, appSettings);
+  const nextCredentials: PersistedProviderCredentials = { lanProviders: new Map() };
+  nextCredentials.ollama = encryptProviderApiKey(appSettings.ollama.apiKey, persistedProviderCredentials.ollama);
+  nextCredentials.remoteLlamaCpp = encryptProviderApiKey(appSettings.remoteLlamaCpp.apiKey, persistedProviderCredentials.remoteLlamaCpp);
+  const lanProviders = appSettings.lanProviders.map(provider => {
+    const encryptedApiKey = encryptProviderApiKey(provider.apiKey, persistedProviderCredentials.lanProviders.get(provider.id));
+    if (encryptedApiKey) nextCredentials.lanProviders.set(provider.id, encryptedApiKey);
+    return {
+      id: provider.id,
+      name: provider.name,
+      host: provider.host,
+      port: provider.port,
+      model: provider.model,
+      encryptedApiKey,
+    };
+  });
+  writeJsonAtomic(settingsPath, {
+    defaultProvider: appSettings.defaultProvider,
+    ollama: {
+      baseUrl: appSettings.ollama.baseUrl,
+      model: appSettings.ollama.model,
+      encryptedApiKey: nextCredentials.ollama,
+    },
+    remoteLlamaCpp: {
+      baseUrl: appSettings.remoteLlamaCpp.baseUrl,
+      model: appSettings.remoteLlamaCpp.model,
+      encryptedApiKey: nextCredentials.remoteLlamaCpp,
+    },
+    lanProviders,
+    defaultModel: appSettings.defaultModel,
+    localProviderBehavior: appSettings.localProviderBehavior,
+  });
+  persistedProviderCredentials = nextCredentials;
 }
 
 function secretMetadata(secret: StoredSecret) {
@@ -497,13 +606,11 @@ function secretMetadata(secret: StoredSecret) {
 }
 
 function secretsStatus() {
-  const backend = process.platform === 'linux' && safeStorage.isEncryptionAvailable()
-    ? safeStorage.getSelectedStorageBackend()
-    : safeStorage.isEncryptionAvailable() ? 'os_keychain' : 'unavailable';
+  const storage = secureStorageBackend();
   return {
-    available: safeStorage.isEncryptionAvailable(),
-    backend,
-    secure: backend !== 'basic_text' && backend !== 'unavailable',
+    available: storage.available,
+    backend: storage.backend,
+    secure: storage.available,
     secrets: [...secrets.values()].sort((left, right) => left.label.localeCompare(right.label)).map(secretMetadata),
   };
 }
@@ -523,7 +630,7 @@ function initSecrets() {
 }
 
 function upsertSecret(input: SecretInput) {
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!secureStorageBackend().available) {
     throw new Error('Secure credential storage is unavailable. Unlock or configure the operating-system keyring and restart Consiglio.');
   }
   const envVar = input.envVar?.trim().toUpperCase();
@@ -659,26 +766,44 @@ function initStore() {
 
 function initSettings() {
   settingsPath = path.join(app.getPath('userData'), 'consiglio-settings.json');
-  const saved = readJsonWithFallback<Partial<AppSettings>>([
+  const saved = readJsonWithFallback<PersistedAppSettings>([
     settingsPath,
     path.join(app.getPath('userData'), 'consiglier-settings.json'),
     path.join(app.getPath('userData'), 'codex-control-settings.json'),
   ]);
   try {
     if (saved) {
+      persistedProviderCredentials = {
+        ollama: saved.ollama?.encryptedApiKey,
+        remoteLlamaCpp: saved.remoteLlamaCpp?.encryptedApiKey,
+        lanProviders: new Map(
+          (saved.lanProviders || [])
+            .filter(provider => provider.id && provider.encryptedApiKey)
+            .map(provider => [provider.id, provider.encryptedApiKey!]),
+        ),
+      };
       appSettings = {
         defaultProvider: normalizeProvider(saved.defaultProvider),
         ollama: {
           baseUrl: saved.ollama?.baseUrl?.trim() || appSettings.ollama.baseUrl,
           model: saved.ollama?.model?.trim() || appSettings.ollama.model,
-          apiKey: saved.ollama?.apiKey?.trim() || appSettings.ollama.apiKey,
+          apiKey: decryptProviderApiKey(saved.ollama?.encryptedApiKey, saved.ollama?.apiKey) || appSettings.ollama.apiKey,
         },
         remoteLlamaCpp: {
           baseUrl: saved.remoteLlamaCpp?.baseUrl?.trim() || appSettings.remoteLlamaCpp.baseUrl,
           model: saved.remoteLlamaCpp?.model?.trim() || appSettings.remoteLlamaCpp.model,
-          apiKey: saved.remoteLlamaCpp?.apiKey?.trim() || appSettings.remoteLlamaCpp.apiKey,
+          apiKey: decryptProviderApiKey(saved.remoteLlamaCpp?.encryptedApiKey, saved.remoteLlamaCpp?.apiKey) || appSettings.remoteLlamaCpp.apiKey,
         },
-        lanProviders: Array.isArray(saved.lanProviders) ? saved.lanProviders : [],
+        lanProviders: Array.isArray(saved.lanProviders)
+          ? saved.lanProviders.map(provider => ({
+              id: provider.id,
+              name: provider.name,
+              host: provider.host,
+              port: provider.port,
+              model: provider.model,
+              apiKey: decryptProviderApiKey(provider.encryptedApiKey, provider.apiKey),
+            }))
+          : [],
         defaultModel: saved.defaultModel?.trim() || appSettings.defaultModel,
         localProviderBehavior: {
           isolateProfile: saved.localProviderBehavior?.isolateProfile !== false,
@@ -1445,6 +1570,29 @@ function resolveSessionPath(sessionId: string, candidatePath: string) {
   return { root, resolved };
 }
 
+function resolveKnownWorkspace(candidatePath: string) {
+  if (typeof candidatePath !== 'string' || !candidatePath.trim()) throw new Error('A task workspace is required');
+  const resolved = fs.realpathSync.native(path.resolve(candidatePath));
+  const known = [...records.values()].some(record => {
+    try {
+      return fs.realpathSync.native(path.resolve(record.repository)) === resolved;
+    } catch {
+      return false;
+    }
+  });
+  if (!known) throw new Error('Path is not a registered task workspace');
+  return resolved;
+}
+
+function resolveGitPath(repository: string, candidatePath: string) {
+  if (typeof candidatePath !== 'string' || !candidatePath.trim()) throw new Error('A repository-relative path is required');
+  const resolved = path.resolve(repository, candidatePath);
+  if (resolved !== repository && !resolved.startsWith(`${repository}${path.sep}`)) {
+    throw new Error('Git path is outside the task workspace');
+  }
+  return path.relative(repository, resolved);
+}
+
 function listWorkspaceFiles(sessionId: string, relativePath = '') {
   const { root, resolved } = resolveSessionPath(sessionId, relativePath);
   return fs.readdirSync(resolved, { withFileTypes: true })
@@ -1545,29 +1693,46 @@ function attachmentKind(filePath: string) {
   return 'file';
 }
 
-ipcMain.handle('session:start', (_event, options: SessionOptions) => startSession(options || {}));
-ipcMain.handle('session:stop', (_event, sessionId: string) => stopSession(sessionId));
-ipcMain.handle('session:delete', (_event, sessionId: string) => deleteSession(sessionId));
-ipcMain.handle('session:list', () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at));
-ipcMain.handle('session:events', (_event, sessionId: string) => events.get(sessionId) || []);
-ipcMain.handle('session:terminal-buffer', (_event, sessionId: string) => sessions.get(sessionId)?.terminalBuffer || '');
-ipcMain.handle('session:send-input', (_event, { sessionId, input }: { sessionId: string; input: string }) => {
+type IpcMainHandler = Parameters<typeof ipcMain.handle>[1];
+
+function handleIpc(channel: string, handler: IpcMainHandler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    const senderUrl = event.senderFrame?.url || event.sender.getURL();
+    const isMainFrame = Boolean(
+      mainWindow
+      && event.sender === mainWindow.webContents
+      && event.senderFrame === mainWindow.webContents.mainFrame,
+    );
+    if (!isMainFrame || !isTrustedRendererUrl(senderUrl)) {
+      throw new Error(`Rejected IPC ${channel} from an untrusted renderer`);
+    }
+    return handler(event, ...args);
+  });
+}
+
+handleIpc('session:start', (_event, options: SessionOptions) => startSession(options || {}));
+handleIpc('session:stop', (_event, sessionId: string) => stopSession(sessionId));
+handleIpc('session:delete', (_event, sessionId: string) => deleteSession(sessionId));
+handleIpc('session:list', () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at));
+handleIpc('session:events', (_event, sessionId: string) => events.get(sessionId) || []);
+handleIpc('session:terminal-buffer', (_event, sessionId: string) => sessions.get(sessionId)?.terminalBuffer || '');
+handleIpc('session:send-input', (_event, { sessionId, input }: { sessionId: string; input: string }) => {
   return sendSessionPrompt(sessionId, input);
 });
-ipcMain.handle('workspace:list-files', (_event, { sessionId, path: relativePath }: { sessionId: string; path?: string }) => {
+handleIpc('workspace:list-files', (_event, { sessionId, path: relativePath }: { sessionId: string; path?: string }) => {
   return listWorkspaceFiles(sessionId, relativePath);
 });
-ipcMain.handle('workspace:read-file', (_event, { sessionId, path: filePath }: { sessionId: string; path: string }) => {
+handleIpc('workspace:read-file', (_event, { sessionId, path: filePath }: { sessionId: string; path: string }) => {
   return readWorkspaceFile(sessionId, filePath);
 });
-ipcMain.handle('workspace:add-attachments', (_event, sessionId: string) => addSessionAttachments(sessionId));
-ipcMain.handle('session:resize', (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+handleIpc('workspace:add-attachments', (_event, sessionId: string) => addSessionAttachments(sessionId));
+handleIpc('session:resize', (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
   const state = sessions.get(sessionId);
   if (!state) return false;
-  state.pty?.resize(Math.max(2, cols), Math.max(2, rows));
+  state.pty?.resize(Math.max(2, Math.min(500, cols)), Math.max(2, Math.min(500, rows)));
   return true;
 });
-ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
+handleIpc('session:reconnect', (_event, sessionId: string) => {
   const record = records.get(sessionId);
   if (!record || sessions.has(sessionId)) return false;
   const branch = record.branch || getBranch(record.repository);
@@ -1601,23 +1766,35 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
   return true;
 });
 
-ipcMain.handle('git:status', (_event, repository: string) => gitStatus(repository));
-ipcMain.handle('git:diff', (_event, repository: string, filePath: string) => gitDiff(repository, filePath));
-ipcMain.handle('git:branch', (_event, repository: string) => getBranch(repository));
-ipcMain.handle('git:hunks', (_event, repository: string, filePath: string) => gitHunks(repository, filePath));
-ipcMain.handle('git:apply-hunk', (_event, repository: string, filePath: string, hunkId: number) => gitApplyHunk(repository, filePath, hunkId, false));
-ipcMain.handle('git:reject-hunk', (_event, repository: string, filePath: string, hunkId: number) => gitApplyHunk(repository, filePath, hunkId, true));
-ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => getPendingApprovals(sessionId));
-ipcMain.handle('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
-ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
-ipcMain.handle('settings:get', () => appSettings);
-ipcMain.handle('secrets:list', () => secretsStatus());
-ipcMain.handle('secrets:upsert', (_event, input: SecretInput) => upsertSecret(input));
-ipcMain.handle('secrets:remove', (_event, id: string) => removeSecret(id));
-ipcMain.handle('system:startup-checks', () => runStartupChecks());
-ipcMain.handle('system:check-updates', () => checkForAppUpdate());
-ipcMain.handle('system:check-providers', async () => (await providerReadiness()).checks);
-ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
+handleIpc('git:status', (_event, repository: string) => gitStatus(resolveKnownWorkspace(repository)));
+handleIpc('git:diff', (_event, repository: string, filePath: string) => {
+  const workspace = resolveKnownWorkspace(repository);
+  return gitDiff(workspace, resolveGitPath(workspace, filePath));
+});
+handleIpc('git:branch', (_event, repository: string) => getBranch(resolveKnownWorkspace(repository)));
+handleIpc('git:hunks', (_event, repository: string, filePath: string) => {
+  const workspace = resolveKnownWorkspace(repository);
+  return gitHunks(workspace, resolveGitPath(workspace, filePath));
+});
+handleIpc('git:apply-hunk', (_event, repository: string, filePath: string, hunkId: number) => {
+  const workspace = resolveKnownWorkspace(repository);
+  return gitApplyHunk(workspace, resolveGitPath(workspace, filePath), hunkId, false);
+});
+handleIpc('git:reject-hunk', (_event, repository: string, filePath: string, hunkId: number) => {
+  const workspace = resolveKnownWorkspace(repository);
+  return gitApplyHunk(workspace, resolveGitPath(workspace, filePath), hunkId, true);
+});
+handleIpc('approval:get-pending', (_event, sessionId?: string) => getPendingApprovals(sessionId));
+handleIpc('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
+handleIpc('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
+handleIpc('settings:get', () => appSettings);
+handleIpc('secrets:list', () => secretsStatus());
+handleIpc('secrets:upsert', (_event, input: SecretInput) => upsertSecret(input));
+handleIpc('secrets:remove', (_event, id: string) => removeSecret(id));
+handleIpc('system:startup-checks', () => runStartupChecks());
+handleIpc('system:check-updates', () => checkForAppUpdate());
+handleIpc('system:check-providers', async () => (await providerReadiness()).checks);
+handleIpc('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
     defaultProvider: normalizeProvider(nextSettings.defaultProvider),
     ollama: {
@@ -1643,18 +1820,18 @@ ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) =
   return appSettings;
 });
 
-ipcMain.handle('models:fetch', (_event, config: { baseUrl: string; apiKey?: string }) =>
+handleIpc('models:fetch', (_event, config: { baseUrl: string; apiKey?: string }) =>
   fetchModels(config.baseUrl, config.apiKey)
 );
 
-ipcMain.handle('lan:add-provider', (_event, provider: LanProvider) => {
+handleIpc('lan:add-provider', (_event, provider: LanProvider) => {
   appSettings.lanProviders.push(provider);
   saveSettings();
   mainWindow?.webContents.send('settings:changed', appSettings);
   return appSettings;
 });
 
-ipcMain.handle('lan:remove-provider', (_event, id: string) => {
+handleIpc('lan:remove-provider', (_event, id: string) => {
   appSettings.lanProviders = appSettings.lanProviders.filter(p => p.id !== id);
   if (appSettings.defaultProvider === 'lan') {
     appSettings.defaultProvider = 'default';
@@ -1664,7 +1841,7 @@ ipcMain.handle('lan:remove-provider', (_event, id: string) => {
   return appSettings;
 });
 
-ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
+handleIpc('lan:update-provider', (_event, updated: LanProvider) => {
   const idx = appSettings.lanProviders.findIndex(p => p.id === updated.id);
   if (idx >= 0) {
     appSettings.lanProviders[idx] = updated;
@@ -1674,7 +1851,7 @@ ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
   return appSettings;
 });
 
-ipcMain.handle('lan:discover', async () => {
+handleIpc('lan:discover', async () => {
   try {
     return await discoverAndSaveLanProviders();
   } catch (error: unknown) {
@@ -1683,22 +1860,23 @@ ipcMain.handle('lan:discover', async () => {
   }
 });
 
-ipcMain.handle('ui:copy-text', (_event, text: string) => {
+handleIpc('ui:copy-text', (_event, text: string) => {
   try {
+    if (typeof text !== 'string' || text.length > 5_000_000) return false;
     clipboard.writeText(text);
     return true;
   } catch {
     return false;
   }
 });
-ipcMain.handle('ui:new-session-request', () => {
+handleIpc('ui:new-session-request', () => {
   mainWindow?.webContents.send('ui:new-session');
   return true;
 });
-ipcMain.handle('ui:test-remote-llamacpp', (_event, config: { baseUrl: string; apiKey: string; model?: string }) => {
+handleIpc('ui:test-remote-llamacpp', (_event, config: { baseUrl: string; apiKey: string; model?: string }) => {
   return testRemoteLlamaCpp(config.baseUrl, config.apiKey, config.model);
 });
-ipcMain.handle('ui:pick-folder', async () => {
+handleIpc('ui:pick-folder', async () => {
   if (!mainWindow) return null;
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -1713,13 +1891,13 @@ ipcMain.handle('ui:pick-folder', async () => {
     return null;
   }
 });
-ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {
+handleIpc('ui:open-path', async (_event, targetPath: string) => {
   try {
-    if (/^https?:\/\//i.test(targetPath)) {
+    if (isSafeExternalUrl(targetPath)) {
       await shell.openExternal(targetPath);
       return true;
     }
-    const result = await shell.openPath(targetPath);
+    const result = await shell.openPath(resolveKnownWorkspace(targetPath));
     return result === '';
   } catch {
     return false;
@@ -1741,6 +1919,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.rickenator.consiglio');
+    registerRendererProtocol();
     initStore();
     initSettings();
     initSecrets();

@@ -63,7 +63,10 @@ Every change is type-checked, tested, built, and packaged on Linux, Windows, and
 ### Requirements
 
 - A working `codex` executable on `PATH`
-- A supported 64-bit desktop platform
+- A supported 64-bit desktop platform:
+  - Debian/Ubuntu-compatible Linux x64 or another modern x64 distribution using the AppImage
+  - Windows 10 or 11 x64
+  - macOS 12 Monterey or newer on Intel or Apple Silicon
 
 Node.js 22 or newer and npm are required only when installing from source.
 
@@ -130,6 +133,8 @@ If shutdown interrupts a response, Consiglio replaces the stale working state wi
 ## API Keys And MCP
 
 Open **Secrets** in the conversation header to add credentials. Consiglio stores only encrypted values on disk, restricts the secrets file to the current OS user, and never sends saved values back to the renderer. A saved value can be replaced or removed, but not revealed.
+
+Provider-specific API keys entered under **Providers** use the same operating-system encryption before settings are written. Legacy plaintext provider keys are migrated on the next launch. Consiglio refuses credential storage when Linux exposes only Electron's insecure `basic_text` fallback; configure and unlock a supported system keyring first.
 
 Each credential can be scoped to:
 
@@ -245,12 +250,15 @@ GitHub Actions also builds release packages for all supported desktop platforms:
 
 Push a version tag matching `package.json`, such as `v0.1.1`, or run the **Release Consiglio** workflow manually with that version. GitHub publishes a release only after every platform package passes validation, and includes `SHA256SUMS.txt` for all artifacts.
 
+Production releases also require Developer ID signing and notarization on macOS and Authenticode signing on Windows. The workflow refuses to publish when those credentials are absent or a signature cannot be verified. Each release includes an SPDX software bill of materials and a Sigstore-backed GitHub artifact attestation; see [Releasing Consiglio](docs/RELEASING.md) for the credential contract and verification commands.
+
 ## Architecture
 
 ```text
 Consiglio
 ├── bin/consiglio                   durable launcher
 ├── src/main.ts                     Electron process, Codex runner, persistence
+├── src/main/app-protocol.ts        bounded renderer protocol and path validation
 ├── src/preload.ts                  narrow contextBridge API
 ├── src/App.tsx                     desktop shell
 ├── src/features/sessions/          task rail and conversation timeline
@@ -261,6 +269,8 @@ Consiglio
 ```
 
 The renderer never launches commands or reads credentials directly. Electron's main process owns Codex subprocesses, filesystem access, persistence, provider environment setup, and encryption. The preload bridge exposes a bounded IPC surface to React.
+
+Packaged builds serve renderer assets through Consiglio's private secure protocol rather than privileged `file://` pages. Electron production fuses disable Run-as-Node, Node option injection, command-line inspection, and loading application code outside the ASAR bundle; macOS and Windows additionally enforce Electron's embedded ASAR integrity check.
 
 ## Troubleshooting
 

@@ -248,6 +248,5 @@ interface GitHunk {
 }
 
 interface Window {
-  __PRELOAD_ERROR__?: unknown;
   codexApi: CodexAPI;
 }

@@ -11,7 +11,7 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: ['electron', 'node-pty', 'fs', 'path', 'child_process', 'net', 'os'],
+      external: ['electron', 'node-pty', 'fs', 'path', 'url', 'child_process', 'net', 'os'],
     },
   },
 });

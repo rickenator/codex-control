@@ -29,10 +29,10 @@ jobs:
             runner: macos-15-intel
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -47,6 +47,8 @@ jobs:
     name: Package ${{ matrix.name }}
     needs: verify
     runs-on: ${{ matrix.runner }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -69,10 +71,10 @@ jobs:
             artifact: Consiglio-macos-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -83,33 +85,11 @@ jobs:
       - name: Build packages
         run: npm run ${{ matrix.command }}
 
-      - name: Validate Linux packages
-        if: runner.os == 'Linux'
-        run: |
-          test -s dist/Consiglio-*.AppImage
-          test -s dist/Consiglio-*.deb
-          dpkg-deb --info dist/Consiglio-*.deb
-
-      - name: Validate macOS packages
-        if: runner.os == 'macOS'
-        run: |
-          test -s dist/Consiglio-*.dmg
-          test -s dist/Consiglio-*.zip
-
-      - name: Validate Windows packages
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $packages = Get-ChildItem dist -Filter 'Consiglio-*.exe'
-          if ($packages.Count -lt 2) {
-            throw "Expected setup and portable Windows executables; found $($packages.Count)"
-          }
-          $packages | ForEach-Object {
-            if ($_.Length -eq 0) { throw "$($_.Name) is empty" }
-          }
+      - name: Validate package internals
+        run: npm run validate:package
 
       - name: Upload packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}-${{ github.sha }}
           path: |

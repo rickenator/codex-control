@@ -19,7 +19,6 @@ class ErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      const preloadErr = window.__PRELOAD_ERROR__ as Error | undefined;
       return (
         <div style={{
           height: '100%', width: '100%', background: '#070b14', color: '#f0f6fc',
@@ -30,11 +29,6 @@ class ErrorBoundary extends React.Component<
           <pre style={{ background: '#0d1320', padding: 16, borderRadius: 8, maxWidth: 600, overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)' }}>
             {this.state.error}
           </pre>
-          {preloadErr && (
-            <div style={{ marginTop: 20, color: '#d29922' }}>
-              <strong>Preload error:</strong> {preloadErr.message}
-            </div>
-          )}
         </div>
       );
     }

@@ -28,12 +28,16 @@
     "package:linux": "npm run verify && electron-builder --linux AppImage deb --publish never",
     "package:mac": "npm run verify && electron-builder --mac dmg zip --publish never",
     "package:win": "npm run verify && electron-builder --win nsis portable --publish never",
+    "package:release:mac": "npm run verify && electron-builder --mac dmg zip --publish never -c.forceCodeSigning=true -c.mac.notarize=true",
+    "package:release:win": "npm run verify && electron-builder --win nsis portable --publish never -c.forceCodeSigning=true",
+    "validate:package": "node scripts/validate-package.mjs",
     "package:host": "node scripts/package-host.mjs"
   },
   "dependencies": {
     "node-pty": "^1.0"
   },
   "devDependencies": {
+    "@electron/fuses": "^2.1.3",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -51,6 +55,7 @@
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "executableName": "consiglio",
     "npmRebuild": true,
+    "afterPack": "scripts/after-pack.cjs",
     "linux": {
       "target": [
         "AppImage",
@@ -92,7 +97,11 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "build/icons/icon.png"
+      "icon": "build/icons/icon.png",
+      "minimumSystemVersion": "12.0.0",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     },
     "win": {
       "target": [

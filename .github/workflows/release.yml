@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.event.inputs.version || github.ref_name }}
@@ -26,10 +26,10 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -49,14 +49,24 @@ jobs:
           fi
           echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Type check Electron
-        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+      - name: Verify application
+        run: npm run verify
 
-      - name: Type check renderer
-        run: ./node_modules/.bin/tsc --noEmit -p src/tsconfig.json
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
-      - name: Build application
-        run: npm run build
+      - name: Create release SBOM
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          npm sbom --omit=dev --sbom-format=spdx --sbom-type=application > "Consiglio-${PACKAGE_VERSION}.spdx.json"
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Consiglio-release-metadata
+          path: Consiglio-*.spdx.json
+          if-no-files-found: error
+          retention-days: 30
 
   package:
     name: Package ${{ matrix.name }}
@@ -72,23 +82,23 @@ jobs:
             artifact: Consiglio-linux-x64
           - name: Windows x64
             runner: windows-2022
-            command: package:win
+            command: package:release:win
             artifact: Consiglio-windows-x64
           - name: macOS x64
             runner: macos-15-intel
-            command: package:mac
+            command: package:release:mac
             artifact: Consiglio-macos-x64
           - name: macOS arm64
             runner: macos-15
-            command: package:mac
+            command: package:release:mac
             artifact: Consiglio-macos-arm64
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -96,36 +106,65 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Package application
-        run: npm run ${{ matrix.command }}
-
-      - name: Validate Linux packages
-        if: runner.os == 'Linux'
-        run: |
-          test -s dist/Consiglio-*.AppImage
-          test -s dist/Consiglio-*.deb
-          dpkg-deb --info dist/Consiglio-*.deb
-
-      - name: Validate macOS packages
+      - name: Require macOS signing and notarization credentials
         if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          test -s dist/Consiglio-*.dmg
-          test -s dist/Consiglio-*.zip
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required GitHub Actions secret for $name" >&2
+              exit 1
+            fi
+          done
 
-      - name: Validate Windows packages
+      - name: Require Windows signing credentials
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
-          $packages = Get-ChildItem dist -Filter 'Consiglio-*.exe'
-          if ($packages.Count -lt 2) {
-            throw "Expected setup and portable Windows executables; found $($packages.Count)"
-          }
-          $packages | ForEach-Object {
-            if ($_.Length -eq 0) { throw "$($_.Name) is empty" }
+          foreach ($name in @('WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing required GitHub Actions secret for $name"
+            }
           }
 
+      - name: Package Linux application
+        if: runner.os == 'Linux'
+        run: npm run ${{ matrix.command }}
+
+      - name: Package signed and notarized macOS application
+        if: runner.os == 'macOS'
+        run: npm run ${{ matrix.command }}
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Package signed Windows application
+        if: runner.os == 'Windows'
+        run: npm run ${{ matrix.command }}
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Validate package internals
+        run: npm run validate:package
+        env:
+          REQUIRE_CODE_SIGNING: ${{ runner.os != 'Linux' && 'true' || 'false' }}
+          REQUIRE_NOTARIZATION: ${{ runner.os == 'macOS' && 'true' || 'false' }}
+
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -141,9 +180,14 @@ jobs:
     name: Publish GitHub release
     needs: [verify, package]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           path: release-artifacts
           merge-multiple: true
@@ -152,8 +196,13 @@ jobs:
         working-directory: release-artifacts
         run: sha256sum Consiglio-* > SHA256SUMS.txt
 
+      - name: Attest release provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-checksums: release-artifacts/SHA256SUMS.txt
+
       - name: Publish release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}
