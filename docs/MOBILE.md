@@ -14,7 +14,11 @@ The bridge does not expose settings, provider API keys, saved secrets, Git mutat
 
 ## Start the desktop bridge
 
-Generate a fresh high-entropy token. For example:
+Open Consiglio, select **Mobile**, and choose **Enable & create token**. Consiglio generates a 256-bit token, encrypts it with the operating-system credential store, and displays it once for transfer to the phone. Closing the dialog removes the visible copy. Use **Rotate token** to revoke every client using the previous token, or **Disable & revoke** to stop the bridge and delete the saved encrypted token.
+
+The bridge listens on `127.0.0.1:43117` by default. The pairing dialog can select another port. It intentionally refuses non-loopback bind addresses.
+
+For automation and development, the environment-variable path remains available. Generate a fresh high-entropy token:
 
 ```bash
 openssl rand -hex 32
@@ -26,7 +30,7 @@ Launch Consiglio with the token in its environment:
 CONSIGLIO_MOBILE_BRIDGE_TOKEN='<64-character-output>' npm run dev:all
 ```
 
-The bridge listens on `127.0.0.1:43117`. Set `CONSIGLIO_MOBILE_BRIDGE_PORT` to another valid port when needed. It intentionally refuses non-loopback bind addresses.
+Set `CONSIGLIO_MOBILE_BRIDGE_PORT` to another valid port when needed. An environment token takes precedence for that launch and makes the pairing controls read-only.
 
 Place an authenticated TLS tunnel or HTTPS reverse proxy in front of that loopback endpoint. The public mobile URL must use a certificate trusted by the phone. Do not expose port 43117 directly to a LAN or the internet, and do not terminate TLS on an untrusted intermediary.
 
@@ -67,7 +71,8 @@ The unsigned debug APK is written under `mobile/android/app/build/outputs/apk/de
 
 ## Security model
 
-- The bridge is off unless `CONSIGLIO_MOBILE_BRIDGE_TOKEN` is present.
+- The bridge is off until mobile pairing is explicitly enabled in Consiglio or `CONSIGLIO_MOBILE_BRIDGE_TOKEN` is present.
+- App-managed tokens are generated from 256 bits of cryptographic randomness, encrypted with the operating-system credential store, persisted in a mode-0600 file, and never returned after the one-time pairing display.
 - Tokens shorter than 32 characters are rejected and compared in constant time.
 - The HTTP listener accepts loopback binds only; transport security belongs to the local TLS tunnel or reverse proxy.
 - Requests require a bearer token, have bounded JSON bodies and prompts, and are rate-limited.
@@ -76,7 +81,7 @@ The unsigned debug APK is written under `mobile/android/app/build/outputs/apk/de
 - The mobile app accepts HTTPS endpoints; plain HTTP is allowed only for localhost development.
 - The pairing token is never stored in `localStorage` or native preferences.
 
-Treat a paired phone as an approval-capable operator device. Use its screen lock, revoke a pairing by restarting the desktop with a new token, and keep the TLS endpoint private.
+Treat a paired phone as an approval-capable operator device. Use its screen lock, rotate or disable pairing immediately when a device is lost, and keep the TLS endpoint private.
 
 ## Production distribution
 

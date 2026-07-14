@@ -75,7 +75,7 @@ Node.js 22 or newer and npm are required only when installing from source.
 
 The native Capacitor client lives in [`mobile/`](mobile/) and connects to a deliberately narrow bridge hosted by the desktop app. It can view sessions and timelines, send prompts, reconnect or stop tasks, and approve or reject pending commands. It cannot read secrets, change providers, browse arbitrary files, or execute arbitrary bridge commands.
 
-The bridge is disabled by default, binds only to loopback, requires a token of at least 32 characters, and is intended to sit behind an authenticated HTTPS tunnel or reverse proxy. See [Mobile Companion](docs/MOBILE.md) for setup, Android/iOS build commands, and the security model.
+The bridge is disabled by default, binds only to loopback, and is intended to sit behind an authenticated HTTPS tunnel or reverse proxy. The desktop **Mobile** dialog generates and encrypts a one-time pairing token and provides explicit rotation and revocation controls. See [Mobile Companion](docs/MOBILE.md) for pairing, Android/iOS build commands, and the security model.
 
 ### Install From Source
 

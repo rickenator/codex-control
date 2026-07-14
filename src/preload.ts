@@ -89,6 +89,14 @@ contextBridge.exposeInMainWorld('codexApi', {
     }) => ipcRenderer.invoke('secrets:upsert', secret),
     removeSecret: (id: string) =>
       ipcRenderer.invoke('secrets:remove', id),
+    getMobileBridgeStatus: () =>
+      ipcRenderer.invoke('mobile:status'),
+    enableMobileBridge: (config: { port?: number; publicUrl?: string }) =>
+      ipcRenderer.invoke('mobile:enable', config),
+    rotateMobileBridgeToken: (config: { port?: number; publicUrl?: string }) =>
+      ipcRenderer.invoke('mobile:rotate', config),
+    disableMobileBridge: () =>
+      ipcRenderer.invoke('mobile:disable'),
 
     // Git
     gitStatus: (repoPath: string) =>

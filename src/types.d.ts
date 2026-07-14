@@ -67,6 +67,22 @@ interface SecretsStatus {
   secrets: SecretMetadata[];
 }
 
+interface MobileBridgeStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  publicUrl: string;
+  managedBy: 'app' | 'environment';
+  secureStorageAvailable: boolean;
+  secureStorageBackend: string;
+  error?: string;
+}
+
+interface MobileBridgePairingResult {
+  status: MobileBridgeStatus;
+  token?: string;
+}
+
 interface SecretInput {
   id?: string;
   label: string;
@@ -161,6 +177,10 @@ interface CodexAPI {
   listSecrets: () => Promise<SecretsStatus>;
   upsertSecret: (secret: SecretInput) => Promise<SecretsStatus>;
   removeSecret: (id: string) => Promise<SecretsStatus>;
+  getMobileBridgeStatus: () => Promise<MobileBridgeStatus>;
+  enableMobileBridge: (config: { port?: number; publicUrl?: string }) => Promise<MobileBridgePairingResult>;
+  rotateMobileBridgeToken: (config: { port?: number; publicUrl?: string }) => Promise<MobileBridgePairingResult>;
+  disableMobileBridge: () => Promise<MobileBridgeStatus>;
 
   // Git
   gitStatus: (repoPath: string) => Promise<GitStatusEntry[]>;

@@ -3,6 +3,7 @@ import SessionList from './features/sessions/SessionList';
 import EventTimeline from './features/sessions/EventTimeline';
 import FileBrowser from './features/files/FileBrowser';
 import SecretsManager from './features/secrets/SecretsManager';
+import MobilePairing from './features/mobile/MobilePairing';
 
 type LanProviderConfig = {
   id: string;
@@ -92,6 +93,7 @@ export default function App() {
   const [showLanSettings, setShowLanSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
+  const [showMobilePairing, setShowMobilePairing] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -932,6 +934,13 @@ export default function App() {
               >
                 Secrets
               </button>
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => setShowMobilePairing(true)}
+                title="Pair Android and iOS companions"
+              >
+                Mobile
+              </button>
               {activeSession?.status === 'running' && selectedSession && (
                 <button
                   className="codex-button codex-button-danger"
@@ -965,6 +974,12 @@ export default function App() {
       <SecretsManager
         open={showSecrets}
         onClose={() => setShowSecrets(false)}
+        onNotice={(kind, message) => setNotice({ kind, message })}
+      />
+
+      <MobilePairing
+        open={showMobilePairing}
+        onClose={() => setShowMobilePairing(false)}
         onNotice={(kind, message) => setNotice({ kind, message })}
       />
 

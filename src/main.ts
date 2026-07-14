@@ -3,9 +3,11 @@ import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net, protocol, sa
 import { discoverLlamaCppServers } from './main/lan-discovery';
 import { APP_PROTOCOL, APP_PROTOCOL_HOST, isSafeExternalUrl, isTrustedRendererUrl, resolveRendererAsset } from './main/app-protocol';
 import { startMobileBridge, type MobileBridgeHandle } from './main/mobile-bridge';
+import { normalizeMobileBridgePort, normalizeMobileBridgePublicUrl } from './main/mobile-pairing-config';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'node:crypto';
 import { pathToFileURL } from 'url';
 import { execFileSync, spawnSync } from 'child_process';
 import packageJson from '../package.json';
@@ -164,6 +166,24 @@ interface PersistedProviderCredentials {
   lanProviders: Map<string, string>;
 }
 
+interface PersistedMobileBridgeConfig {
+  enabled: boolean;
+  port: number;
+  publicUrl: string;
+  encryptedToken?: string;
+}
+
+interface MobileBridgeStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  publicUrl: string;
+  managedBy: 'app' | 'environment';
+  secureStorageAvailable: boolean;
+  secureStorageBackend: string;
+  error?: string;
+}
+
 interface ApprovalRequest {
   id: string;
   sessionId: string;
@@ -227,6 +247,7 @@ let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
 let secretsPath = '';
+let mobileBridgeConfigPath = '';
 let windowStatePath = '';
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 let appSettings: AppSettings = {
@@ -253,6 +274,12 @@ let persistedProviderCredentials: PersistedProviderCredentials = {
   lanProviders: new Map(),
 };
 let mobileBridge: MobileBridgeHandle | null = null;
+let mobileBridgeError = '';
+let mobileBridgeConfig: PersistedMobileBridgeConfig = {
+  enabled: false,
+  port: 43117,
+  publicUrl: '',
+};
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
 const events = new Map<string, CodexEvent[]>();
@@ -519,28 +546,170 @@ function registerRendererProtocol() {
   });
 }
 
-async function initializeMobileBridge() {
-  const token = process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim();
-  if (!token) return;
-  const configuredPort = Number.parseInt(process.env.CONSIGLIO_MOBILE_BRIDGE_PORT || '43117', 10);
-  if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65_535) {
-    throw new Error('CONSIGLIO_MOBILE_BRIDGE_PORT must be an integer from 1 to 65535');
+function mobileBridgeActions() {
+  return {
+    listSessions: () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at),
+    getSessionEvents: (sessionId: string) => events.get(sessionId) || [],
+    sendInput: (sessionId: string, input: string) => sendSessionPrompt(sessionId, input),
+    reconnectSession: (sessionId: string) => reconnectSession(sessionId),
+    stopSession: (sessionId: string) => stopSession(sessionId),
+    getPendingApprovals,
+    approveCommand,
+    rejectCommand,
+  };
+}
+
+function initMobileBridgeConfig() {
+  mobileBridgeConfigPath = path.join(app.getPath('userData'), 'consiglio-mobile-bridge.json');
+  const saved = readJsonWithFallback<Partial<PersistedMobileBridgeConfig>>([mobileBridgeConfigPath]);
+  if (!saved) return;
+  try {
+    mobileBridgeConfig = {
+      enabled: saved.enabled === true,
+      port: normalizeMobileBridgePort(saved.port || 43117),
+      publicUrl: normalizeMobileBridgePublicUrl(saved.publicUrl),
+      encryptedToken: typeof saved.encryptedToken === 'string' ? saved.encryptedToken : undefined,
+    };
+  } catch (error) {
+    mobileBridgeError = error instanceof Error ? error.message : 'The saved mobile bridge configuration is invalid.';
   }
-  mobileBridge = await startMobileBridge({
-    token,
-    port: configuredPort,
-    actions: {
-      listSessions: () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at),
-      getSessionEvents: sessionId => events.get(sessionId) || [],
-      sendInput: (sessionId, input) => sendSessionPrompt(sessionId, input),
-      reconnectSession: sessionId => reconnectSession(sessionId),
-      stopSession: sessionId => stopSession(sessionId),
-      getPendingApprovals,
-      approveCommand,
-      rejectCommand,
-    },
-  });
-  console.info(`Consiglio mobile bridge listening on ${mobileBridge.host}:${mobileBridge.port}`);
+}
+
+function saveMobileBridgeConfig() {
+  if (!mobileBridgeConfigPath) return;
+  writeJsonAtomic(mobileBridgeConfigPath, mobileBridgeConfig, 0o600);
+}
+
+function decryptMobileBridgeToken() {
+  if (!mobileBridgeConfig.encryptedToken || !secureStorageBackend().available) return '';
+  try {
+    return safeStorage.decryptString(Buffer.from(mobileBridgeConfig.encryptedToken, 'base64'));
+  } catch (error) {
+    console.error('Could not decrypt the mobile bridge token:', error);
+    return '';
+  }
+}
+
+async function closeMobileBridge() {
+  const current = mobileBridge;
+  mobileBridge = null;
+  if (!current) return;
+  try {
+    await current.close();
+  } catch (error) {
+    console.error('Could not close the mobile bridge:', error);
+  }
+}
+
+async function launchMobileBridge(token: string, port: number) {
+  await closeMobileBridge();
+  try {
+    mobileBridge = await startMobileBridge({ token, port, actions: mobileBridgeActions() });
+    mobileBridgeError = '';
+    console.info(`Consiglio mobile bridge listening on ${mobileBridge.host}:${mobileBridge.port}`);
+  } catch (error) {
+    mobileBridgeError = error instanceof Error ? error.message : 'Could not start the mobile bridge.';
+    throw error;
+  }
+}
+
+async function initializeMobileBridge() {
+  const environmentToken = process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim();
+  if (environmentToken) {
+    const port = normalizeMobileBridgePort(process.env.CONSIGLIO_MOBILE_BRIDGE_PORT || 43117);
+    await launchMobileBridge(environmentToken, port);
+    return;
+  }
+  if (!mobileBridgeConfig.enabled) return;
+  if (!secureStorageBackend().available) {
+    mobileBridgeError = 'Secure credential storage is unavailable. Unlock or configure the operating-system keyring and restart Consiglio.';
+    return;
+  }
+  const token = decryptMobileBridgeToken();
+  if (token.length < 32) {
+    mobileBridgeError = 'The saved pairing token could not be decrypted. Rotate mobile pairing to create a new token.';
+    return;
+  }
+  await launchMobileBridge(token, mobileBridgeConfig.port);
+}
+
+function getMobileBridgeStatus(): MobileBridgeStatus {
+  const environmentManaged = Boolean(process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim());
+  const storage = secureStorageBackend();
+  let port = mobileBridge?.port || mobileBridgeConfig.port;
+  if (environmentManaged) {
+    try {
+      port = normalizeMobileBridgePort(process.env.CONSIGLIO_MOBILE_BRIDGE_PORT || 43117);
+    } catch {
+      // Initialization reports the actionable error without breaking status reads.
+    }
+  }
+  return {
+    enabled: environmentManaged || mobileBridgeConfig.enabled,
+    running: Boolean(mobileBridge),
+    port,
+    publicUrl: mobileBridgeConfig.publicUrl,
+    managedBy: environmentManaged ? 'environment' : 'app',
+    secureStorageAvailable: storage.available,
+    secureStorageBackend: storage.backend,
+    error: mobileBridgeError || undefined,
+  };
+}
+
+async function configureMobileBridge(input: { port?: number; publicUrl?: string }, rotate = false) {
+  if (process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim()) {
+    throw new Error('Mobile pairing is managed by environment variables for this launch.');
+  }
+  if (!secureStorageBackend().available) {
+    throw new Error('Secure credential storage is unavailable. Unlock or configure the operating-system keyring and restart Consiglio.');
+  }
+  const port = normalizeMobileBridgePort(input.port ?? mobileBridgeConfig.port);
+  const publicUrl = normalizeMobileBridgePublicUrl(input.publicUrl ?? mobileBridgeConfig.publicUrl);
+  const existingToken = decryptMobileBridgeToken();
+  const token = rotate || existingToken.length < 32 ? crypto.randomBytes(32).toString('hex') : existingToken;
+  const previousConfig = { ...mobileBridgeConfig };
+  try {
+    await launchMobileBridge(token, port);
+    mobileBridgeConfig = {
+      enabled: true,
+      port,
+      publicUrl,
+      encryptedToken: safeStorage.encryptString(token).toString('base64'),
+    };
+    saveMobileBridgeConfig();
+  } catch (error) {
+    mobileBridgeConfig = previousConfig;
+    if (previousConfig.enabled && existingToken.length >= 32) {
+      try {
+        await launchMobileBridge(existingToken, previousConfig.port);
+      } catch (restoreError) {
+        console.error('Could not restore the previous mobile bridge after configuration failed:', restoreError);
+      }
+    }
+    throw error;
+  }
+  return { status: getMobileBridgeStatus(), token: rotate || existingToken.length < 32 ? token : undefined };
+}
+
+async function disableMobileBridge() {
+  if (process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim()) {
+    throw new Error('Mobile pairing is managed by environment variables for this launch.');
+  }
+  const previousConfig = { ...mobileBridgeConfig };
+  mobileBridgeConfig = {
+    enabled: false,
+    port: mobileBridgeConfig.port,
+    publicUrl: mobileBridgeConfig.publicUrl,
+  };
+  try {
+    saveMobileBridgeConfig();
+  } catch (error) {
+    mobileBridgeConfig = previousConfig;
+    throw error;
+  }
+  await closeMobileBridge();
+  mobileBridgeError = '';
+  return getMobileBridgeStatus();
 }
 
 function saveStore() {
@@ -549,7 +718,7 @@ function saveStore() {
     sessions: [...records.values()],
     events: Object.fromEntries(events),
     approvals: [...approvals.values()],
-  });
+  }, 0o600);
 }
 
 function emitSessionUpdate() {
@@ -614,7 +783,7 @@ function saveSettings() {
     lanProviders,
     defaultModel: appSettings.defaultModel,
     localProviderBehavior: appSettings.localProviderBehavior,
-  });
+  }, 0o600);
   persistedProviderCredentials = nextCredentials;
 }
 
@@ -643,8 +812,7 @@ function secretsStatus() {
 
 function saveSecrets() {
   if (!secretsPath) return;
-  writeJsonAtomic(secretsPath, { secrets: [...secrets.values()] });
-  fs.chmodSync(secretsPath, 0o600);
+  writeJsonAtomic(secretsPath, { secrets: [...secrets.values()] }, 0o600);
 }
 
 function initSecrets() {
@@ -719,11 +887,12 @@ function refreshSessionSecretEnvironments(envVars: Array<string | undefined>) {
   }
 }
 
-function writeJsonAtomic(filePath: string, data: unknown) {
+function writeJsonAtomic(filePath: string, data: unknown, mode?: number) {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
   const temporaryPath = `${filePath}.tmp`;
-  fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2));
+  fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2), mode === undefined ? undefined : { mode });
+  if (mode !== undefined) fs.chmodSync(temporaryPath, mode);
   fs.renameSync(temporaryPath, filePath);
 }
 
@@ -1818,6 +1987,10 @@ handleIpc('settings:get', () => appSettings);
 handleIpc('secrets:list', () => secretsStatus());
 handleIpc('secrets:upsert', (_event, input: SecretInput) => upsertSecret(input));
 handleIpc('secrets:remove', (_event, id: string) => removeSecret(id));
+handleIpc('mobile:status', () => getMobileBridgeStatus());
+handleIpc('mobile:enable', (_event, input: { port?: number; publicUrl?: string }) => configureMobileBridge(input || {}));
+handleIpc('mobile:rotate', (_event, input: { port?: number; publicUrl?: string }) => configureMobileBridge(input || {}, true));
+handleIpc('mobile:disable', () => disableMobileBridge());
 handleIpc('system:startup-checks', () => runStartupChecks());
 handleIpc('system:check-updates', () => checkForAppUpdate());
 handleIpc('system:check-providers', async () => (await providerReadiness()).checks);
@@ -1950,7 +2123,9 @@ if (!hasSingleInstanceLock) {
     initStore();
     initSettings();
     initSecrets();
+    initMobileBridgeConfig();
     void initializeMobileBridge().catch(error => {
+      mobileBridgeError = error instanceof Error ? error.message : 'Could not start the mobile bridge.';
       console.error('Could not start the Consiglio mobile bridge:', error);
     });
     Menu.setApplicationMenu(buildApplicationMenu());
@@ -1962,8 +2137,7 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on('before-quit', () => {
-  if (mobileBridge) void mobileBridge.close();
-  mobileBridge = null;
+  void closeMobileBridge();
 });
 
 app.on('window-all-closed', () => {
