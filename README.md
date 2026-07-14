@@ -174,7 +174,17 @@ Build Linux packages with:
 npm run package:linux
 ```
 
-This produces an AppImage and a Debian package. Packaging metadata for macOS and Windows also exists, but Linux is the currently exercised desktop target.
+This produces an AppImage and a compressed Debian package. Linux is the primary desktop target.
+
+GitHub Actions also builds release packages for all supported desktop platforms:
+
+| Platform | Release artifacts |
+| --- | --- |
+| Linux x64 | AppImage and `.deb` |
+| Windows x64 | NSIS installer and portable `.exe` |
+| macOS x64 | DMG and ZIP |
+
+Push a version tag matching `package.json`, such as `v0.1.0`, or run the **Release Consiglio** workflow manually with that version. GitHub publishes a release only after every platform package passes validation, and includes `SHA256SUMS.txt` for all artifacts.
 
 ## Architecture
 

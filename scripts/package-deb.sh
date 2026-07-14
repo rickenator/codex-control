@@ -31,7 +31,7 @@ Version: $version
 Section: devel
 Priority: optional
 Architecture: $architecture
-Maintainer: Rick <rick@apex>
+Maintainer: Rick Goldberg and Aniviza LLC
 Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0
 Recommends: libappindicator3-1
 Description: Desktop control plane for Codex CLI
@@ -51,5 +51,5 @@ Categories=Development;
 StartupWMClass=Consiglio
 EOF
 
-dpkg-deb --build --root-owner-group -Znone "$stage" "$output"
+dpkg-deb --build --root-owner-group -Zxz -z6 "$stage" "$output"
 echo "$output"
