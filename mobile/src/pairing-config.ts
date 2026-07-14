@@ -19,3 +19,26 @@ export function normalizePairingConfig(config: PairingConfig): PairingConfig {
   if (token.length < 32) throw new Error('The pairing token must contain at least 32 characters.');
   return { endpoint: endpoint.toString().replace(/\/$/, ''), token };
 }
+
+export function parsePairingUri(value: string): PairingConfig {
+  if (value.length > 4_096) throw new Error('The pairing code is too large.');
+  let pairing: URL;
+  try {
+    pairing = new URL(value.trim());
+  } catch {
+    throw new Error('This is not a Consiglio pairing code.');
+  }
+  if (pairing.protocol !== 'consiglio:' || pairing.hostname !== 'pair' || pairing.pathname !== '/v1' || pairing.hash) {
+    throw new Error('This is not a supported Consiglio pairing code.');
+  }
+  const keys = [...pairing.searchParams.keys()];
+  if (keys.length !== 2 || new Set(keys).size !== 2 || !keys.includes('endpoint') || !keys.includes('token')) {
+    throw new Error('The Consiglio pairing code has unexpected fields.');
+  }
+  const config = normalizePairingConfig({
+    endpoint: pairing.searchParams.get('endpoint') || '',
+    token: pairing.searchParams.get('token') || '',
+  });
+  if (!/^[a-f0-9]{64}$/.test(config.token)) throw new Error('The QR pairing token is invalid.');
+  return config;
+}

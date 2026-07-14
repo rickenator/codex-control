@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApprovalRecord, BridgeClient, SessionEvent, SessionRecord } from './api';
+import { parsePairingUri, type PairingConfig } from './pairing-config';
 import { clearPairing, loadPairing, savePairing } from './secure-pairing';
 
 function shortRepository(repository: string) {
@@ -105,21 +106,56 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [client, handleClientError, refresh]);
 
+  async function activatePairing(config: PairingConfig) {
+    const nextClient = new BridgeClient(config);
+    await nextClient.health();
+    await savePairing({ endpoint: nextClient.endpoint, token: config.token });
+    setEndpoint(nextClient.endpoint);
+    setHasSavedPairing(true);
+    setToken('');
+    await hydrate(nextClient, null);
+    setClient(nextClient);
+  }
+
   async function connect(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const nextClient = new BridgeClient({ endpoint, token });
-      await nextClient.health();
-      await savePairing({ endpoint: nextClient.endpoint, token });
-      setEndpoint(nextClient.endpoint);
-      setHasSavedPairing(true);
-      setToken('');
-      await hydrate(nextClient, null);
-      setClient(nextClient);
-    } catch (error) { setError((error as Error).message); }
+      await activatePairing({ endpoint, token });
+    } catch (connectError) { setError((connectError as Error).message); }
     finally { setBusy(false); }
+  }
+
+  async function scanPairing() {
+    setBusy(true);
+    setError(null);
+    try {
+      const {
+        CapacitorBarcodeScanner,
+        CapacitorBarcodeScannerCameraDirection,
+        CapacitorBarcodeScannerTypeHint,
+      } = await import('@capacitor/barcode-scanner');
+      const result = await CapacitorBarcodeScanner.scanBarcode({
+        hint: CapacitorBarcodeScannerTypeHint.QR_CODE,
+        cameraDirection: CapacitorBarcodeScannerCameraDirection.BACK,
+        scanInstructions: 'Scan the pairing code shown by Consiglio on your desktop',
+        scanButton: false,
+        cancelButtonAccessibilityLabel: 'Cancel Consiglio pairing scan',
+        torchButtonOnAccessibilityLabel: 'Turn flashlight off',
+        torchButtonOffAccessibilityLabel: 'Turn flashlight on',
+      });
+      const config = parsePairingUri(result.ScanResult);
+      setEndpoint(config.endpoint);
+      await activatePairing(config);
+    } catch (scanError) {
+      const message = (scanError as Error).message;
+      setError(/permission|denied|camera access/i.test(message)
+        ? 'Camera access is required to scan a code. Allow access in system settings or enter the pairing manually.'
+        : `Could not scan this pairing: ${message}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function selectSession(sessionId: string) {
@@ -193,6 +229,8 @@ export default function App() {
             <>
               <p className="lede">Connect to the bridge running on your desktop. The bridge URL must be protected by HTTPS.</p>
               {hasSavedPairing && <button className="saved-pairing" type="button" onClick={() => void restoreSavedPairing()}>Retry saved pairing</button>}
+              <button className="scan-pairing" type="button" disabled={busy} onClick={() => void scanPairing()}>{busy ? 'Opening camera…' : 'Scan desktop pairing code'}</button>
+              <div className="pairing-divider"><span>or enter it manually</span></div>
               <form onSubmit={connect}>
                 <label>Bridge URL<input type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="https://consiglio.example.ts.net" required /></label>
                 <label>Pairing token<input type="password" value={token} onChange={event => setToken(event.target.value)} minLength={32} autoComplete="off" required /></label>

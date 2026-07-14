@@ -17,6 +17,10 @@ input:focus, textarea:focus { border-color: #6599dc; box-shadow: 0 0 0 3px rgba(
 .restore-state { display: flex; align-items: center; gap: 10px; margin-top: 30px; color: #9dabbc; }
 .restore-spinner { width: 16px; height: 16px; border: 2px solid #34445a; border-top-color: #9dc4ff; border-radius: 50%; animation: restore-spin .8s linear infinite; }
 .saved-pairing { width: 100%; color: #bcd7fa; background: #101a28; border: 1px solid #365374; border-radius: 12px; padding: 12px; margin-bottom: 4px; font-weight: 700; }
+.scan-pairing { width: 100%; color: #071521; background: #9dc4ff; border: 0; border-radius: 12px; padding: 14px; font-weight: 800; }
+.pairing-divider { display: flex; align-items: center; gap: 10px; margin: 20px 0 6px; color: #637287; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.pairing-divider::before, .pairing-divider::after { content: ""; height: 1px; flex: 1; background: #202b39; }
+.pairing-divider span { flex: 0 0 auto; }
 @keyframes restore-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .restore-spinner { animation: none; border-top-color: #34445a; } }
 .error { color: #ffb8b8; }

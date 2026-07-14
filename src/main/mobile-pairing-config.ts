@@ -21,3 +21,15 @@ export function normalizeMobileBridgePublicUrl(value: unknown) {
   url.hash = '';
   return url.toString().replace(/\/$/, '');
 }
+
+export function createMobilePairingUri(endpointValue: unknown, tokenValue: unknown) {
+  const endpoint = normalizeMobileBridgePublicUrl(endpointValue);
+  if (!endpoint) throw new Error('An HTTPS mobile URL is required to create a pairing code.');
+  const token = typeof tokenValue === 'string' ? tokenValue.trim() : '';
+  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('The mobile pairing token is invalid.');
+
+  const pairing = new URL('consiglio://pair/v1');
+  pairing.searchParams.set('endpoint', endpoint);
+  pairing.searchParams.set('token', token);
+  return pairing.toString();
+}

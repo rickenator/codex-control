@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { createMobilePairingUri } from '../../main/mobile-pairing-config';
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -11,6 +13,9 @@ export default function MobilePairing({ open, onClose, onNotice }: Props) {
   const [port, setPort] = useState('43117');
   const [publicUrl, setPublicUrl] = useState('');
   const [pairingToken, setPairingToken] = useState('');
+  const [pairingUri, setPairingUri] = useState('');
+  const [pairingQr, setPairingQr] = useState('');
+  const [pairingQrError, setPairingQrError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -33,6 +38,36 @@ export default function MobilePairing({ open, onClose, onNotice }: Props) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setPairingUri('');
+    setPairingQr('');
+    setPairingQrError('');
+    if (!pairingToken || !publicUrl.trim()) return;
+    try {
+      const uri = createMobilePairingUri(publicUrl, pairingToken);
+      setPairingUri(uri);
+      void import('qrcode').then(({ default: QRCode }) => QRCode.toDataURL(uri, {
+          width: 228,
+          margin: 1,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#0d1117', light: '#ffffff' },
+        }))
+        .then(value => {
+          if (!cancelled) setPairingQr(value);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPairingQr('');
+            setPairingQrError('Could not render the pairing code. Copy the pairing link or enter the values manually.');
+          }
+        });
+    } catch {
+      // The form and main process provide the actionable validation error on save.
+    }
+    return () => { cancelled = true; };
+  }, [pairingToken, publicUrl]);
+
   if (!open) return null;
 
   const config = () => ({ port: Number.parseInt(port, 10), publicUrl: publicUrl.trim() });
@@ -42,7 +77,9 @@ export default function MobilePairing({ open, onClose, onNotice }: Props) {
     try {
       const result = await window.codexApi.enableMobileBridge(config());
       setStatus(result.status);
-      setPairingToken(result.token || '');
+      setPort(String(result.status.port));
+      setPublicUrl(result.status.publicUrl);
+      if (result.token) setPairingToken(result.token);
       onNotice('success', result.token ? 'Mobile pairing enabled. Copy the token now.' : 'Mobile bridge settings saved.');
     } catch (error) {
       onNotice('error', `Could not enable mobile pairing: ${(error as Error).message}`);
@@ -57,6 +94,8 @@ export default function MobilePairing({ open, onClose, onNotice }: Props) {
     try {
       const result = await window.codexApi.rotateMobileBridgeToken(config());
       setStatus(result.status);
+      setPort(String(result.status.port));
+      setPublicUrl(result.status.publicUrl);
       setPairingToken(result.token || '');
       onNotice('success', 'The old mobile token was revoked. Copy the replacement now.');
     } catch (error) {
@@ -146,6 +185,18 @@ export default function MobilePairing({ open, onClose, onNotice }: Props) {
                   <span>It will disappear when this dialog closes.</span>
                 </div>
                 <code>{pairingToken}</code>
+                {pairingUri && (
+                  <div className={`mobile-pairing-qr${pairingQr ? '' : ' no-image'}`}>
+                    {pairingQr && <img src={pairingQr} alt="Consiglio mobile pairing QR code" />}
+                    <div>
+                      <strong>Scan with Consiglio mobile</strong>
+                      <span>The code contains this one-time token. Keep it private and close this dialog when pairing is complete.</span>
+                      <button className="codex-button codex-button-secondary" onClick={() => void copy(pairingUri, 'Pairing link')}>Copy pairing link</button>
+                    </div>
+                  </div>
+                )}
+                {!publicUrl.trim() && <span className="mobile-pairing-qr-hint">Add the public HTTPS URL to generate a scannable pairing code.</span>}
+                {pairingQrError && <span className="mobile-pairing-qr-hint">{pairingQrError}</span>}
                 <div className="mobile-pairing-actions">
                   <button className="codex-button codex-button-primary" onClick={() => void copy(pairingToken, 'Pairing token')}>Copy token</button>
                   {publicUrl.trim() && (
