@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Consiglio</string>
+    <string name="title_activity_main">Consiglio</string>
+    <string name="package_name">com.rickenator.consiglio.mobile</string>
+    <string name="custom_url_scheme">com.rickenator.consiglio.mobile</string>
+</resources>

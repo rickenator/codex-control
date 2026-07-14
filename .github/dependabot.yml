@@ -16,3 +16,20 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+
+  - package-ecosystem: npm
+    directory: /mobile
+    target-branch: slave
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      mobile-development-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: gradle
+    directory: /mobile/android
+    target-branch: slave
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10

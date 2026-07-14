@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net, protocol, sa
 
 import { discoverLlamaCppServers } from './main/lan-discovery';
 import { APP_PROTOCOL, APP_PROTOCOL_HOST, isSafeExternalUrl, isTrustedRendererUrl, resolveRendererAsset } from './main/app-protocol';
+import { startMobileBridge, type MobileBridgeHandle } from './main/mobile-bridge';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
 import path from 'path';
 import fs from 'fs';
@@ -251,6 +252,7 @@ let appSettings: AppSettings = {
 let persistedProviderCredentials: PersistedProviderCredentials = {
   lanProviders: new Map(),
 };
+let mobileBridge: MobileBridgeHandle | null = null;
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
 const events = new Map<string, CodexEvent[]>();
@@ -515,6 +517,30 @@ function registerRendererProtocol() {
     }
     return net.fetch(pathToFileURL(assetPath).toString(), { method: request.method });
   });
+}
+
+async function initializeMobileBridge() {
+  const token = process.env.CONSIGLIO_MOBILE_BRIDGE_TOKEN?.trim();
+  if (!token) return;
+  const configuredPort = Number.parseInt(process.env.CONSIGLIO_MOBILE_BRIDGE_PORT || '43117', 10);
+  if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65_535) {
+    throw new Error('CONSIGLIO_MOBILE_BRIDGE_PORT must be an integer from 1 to 65535');
+  }
+  mobileBridge = await startMobileBridge({
+    token,
+    port: configuredPort,
+    actions: {
+      listSessions: () => [...records.values()].sort((left, right) => right.updated_at - left.updated_at),
+      getSessionEvents: sessionId => events.get(sessionId) || [],
+      sendInput: (sessionId, input) => sendSessionPrompt(sessionId, input),
+      reconnectSession: sessionId => reconnectSession(sessionId),
+      stopSession: sessionId => stopSession(sessionId),
+      getPendingApprovals,
+      approveCommand,
+      rejectCommand,
+    },
+  });
+  console.info(`Consiglio mobile bridge listening on ${mobileBridge.host}:${mobileBridge.port}`);
 }
 
 function saveStore() {
@@ -1472,6 +1498,39 @@ function stopSession(sessionId: string) {
   return true;
 }
 
+function reconnectSession(sessionId: string) {
+  const record = records.get(sessionId);
+  if (!record || sessions.has(sessionId)) return false;
+  const branch = record.branch || getBranch(record.repository);
+  launchSession(sessionId, record.repository, branch, record.provider || appSettings.defaultProvider, {
+    repository: record.repository,
+    branch,
+    provider: record.provider,
+    remoteLlamaCpp: record.provider === 'remote_llamacpp'
+      ? {
+          baseUrl: record.baseUrl,
+          model: record.model,
+          apiKey: appSettings.remoteLlamaCpp.apiKey,
+        }
+      : undefined,
+    selectedLanProviderId: record.selectedLanProviderId,
+    codexThreadId: record.codexThreadId,
+  }, true);
+  const updated = records.get(sessionId);
+  if (updated) {
+    updated.status = 'running';
+    updated.updated_at = Date.now();
+    records.set(sessionId, updated);
+    saveStore();
+  }
+  emitSessionUpdate();
+  const recoveredIds = [...sessions.keys()];
+  if (recoveredIds.length > 0) {
+    mainWindow?.webContents.send('codex:sessions-recovered', recoveredIds);
+  }
+  return true;
+}
+
 
 function deleteSession(sessionId: string) {
   const state = sessions.get(sessionId);
@@ -1732,39 +1791,7 @@ handleIpc('session:resize', (_event, { sessionId, cols, rows }: { sessionId: str
   state.pty?.resize(Math.max(2, Math.min(500, cols)), Math.max(2, Math.min(500, rows)));
   return true;
 });
-handleIpc('session:reconnect', (_event, sessionId: string) => {
-  const record = records.get(sessionId);
-  if (!record || sessions.has(sessionId)) return false;
-  const branch = record.branch || getBranch(record.repository);
-  launchSession(sessionId, record.repository, branch, record.provider || appSettings.defaultProvider, {
-    repository: record.repository,
-    branch,
-    provider: record.provider,
-    remoteLlamaCpp: record.provider === 'remote_llamacpp'
-      ? {
-          baseUrl: record.baseUrl,
-          model: record.model,
-          apiKey: appSettings.remoteLlamaCpp.apiKey,
-        }
-      : undefined,
-    selectedLanProviderId: record.selectedLanProviderId,
-    codexThreadId: record.codexThreadId,
-  }, true);
-  const updated = records.get(sessionId);
-  if (updated) {
-    updated.status = 'running';
-    updated.updated_at = Date.now();
-    records.set(sessionId, updated);
-    saveStore();
-  }
-  emitSessionUpdate();
-  // Notify UI about recovered sessions
-  const recoveredIds = [...sessions.keys()];
-  if (recoveredIds.length > 0) {
-    mainWindow?.webContents.send('codex:sessions-recovered', recoveredIds);
-  }
-  return true;
-});
+handleIpc('session:reconnect', (_event, sessionId: string) => reconnectSession(sessionId));
 
 handleIpc('git:status', (_event, repository: string) => gitStatus(resolveKnownWorkspace(repository)));
 handleIpc('git:diff', (_event, repository: string, filePath: string) => {
@@ -1923,6 +1950,9 @@ if (!hasSingleInstanceLock) {
     initStore();
     initSettings();
     initSecrets();
+    void initializeMobileBridge().catch(error => {
+      console.error('Could not start the Consiglio mobile bridge:', error);
+    });
     Menu.setApplicationMenu(buildApplicationMenu());
     createWindow();
     app.on('activate', () => {
@@ -1930,6 +1960,11 @@ if (!hasSingleInstanceLock) {
     });
   });
 }
+
+app.on('before-quit', () => {
+  if (mobileBridge) void mobileBridge.close();
+  mobileBridge = null;
+});
 
 app.on('window-all-closed', () => {
   for (const id of sessions.keys()) stopSession(id);

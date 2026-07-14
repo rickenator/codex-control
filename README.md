@@ -7,7 +7,7 @@
     <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-5ca8ff?style=flat-square">
     <img alt="Electron" src="https://img.shields.io/badge/shell-Electron-9de4f2?style=flat-square">
     <img alt="React" src="https://img.shields.io/badge/UI-React-61dafb?style=flat-square">
-    <img alt="Platforms: Linux, Windows, macOS" src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-f5c542?style=flat-square">
+    <img alt="Platforms: Linux, Windows, macOS, Android, iOS" src="https://img.shields.io/badge/platforms-Desktop%20%7C%20Android%20%7C%20iOS-f5c542?style=flat-square">
     <a href="https://github.com/rickenator/Consiglio/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rickenator/Consiglio?style=flat-square&color=5ca8ff"></a>
   </p>
   <p>
@@ -45,6 +45,7 @@ Codex is powerful, but serious work rarely fits into one terminal session. Consi
 | **Providers** | Runs the normal Codex profile, GPT-5.6, Ollama, remote llama.cpp, or discovered LAN endpoints. |
 | **Secrets** | Encrypts API keys through Electron `safeStorage` and injects scoped environment variables into task processes. |
 | **Approvals** | Surfaces command approval requests with the command and affected paths. |
+| **Mobile companion** | Monitors sessions, sends prompts, reconnects or stops work, and handles approvals from Android or iOS. |
 
 ## Start Here
 
@@ -69,6 +70,12 @@ Every change is type-checked, tested, built, and packaged on Linux, Windows, and
   - macOS 12 Monterey or newer on Intel or Apple Silicon
 
 Node.js 22 or newer and npm are required only when installing from source.
+
+### Android And iOS Companion
+
+The native Capacitor client lives in [`mobile/`](mobile/) and connects to a deliberately narrow bridge hosted by the desktop app. It can view sessions and timelines, send prompts, reconnect or stop tasks, and approve or reject pending commands. It cannot read secrets, change providers, browse arbitrary files, or execute arbitrary bridge commands.
+
+The bridge is disabled by default, binds only to loopback, requires a token of at least 32 characters, and is intended to sit behind an authenticated HTTPS tunnel or reverse proxy. See [Mobile Companion](docs/MOBILE.md) for setup, Android/iOS build commands, and the security model.
 
 ### Install From Source
 
@@ -219,6 +226,16 @@ Run the full local verification gate:
 ```bash
 npm run verify
 ```
+
+Build and synchronize both native mobile projects:
+
+```bash
+cd mobile
+npm ci
+npm run sync
+```
+
+The Android project is under `mobile/android`; the iOS Xcode project is under `mobile/ios/App`.
 
 ## Packaging
 
