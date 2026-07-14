@@ -6,6 +6,7 @@ import { startMobileBridge, type MobileBridgeHandle } from './main/mobile-bridge
 import { normalizeMobileBridgePort, normalizeMobileBridgePublicUrl } from './main/mobile-pairing-config';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
 import { CodexAdapter, getAdapter } from './main/adapters';
+import { DiscussionSession } from '@/main/discussion-session';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'node:crypto';
@@ -315,6 +316,11 @@ let mobileBridgeConfig: PersistedMobileBridgeConfig = {
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
+
+// ─── Discussion Sessions ──────────────────────────────────────────────────────
+// Multi-agent discussion sessions (separate from regular sessions)
+
+const discussionSessions = new Map<string, DiscussionSession>();
 const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
 const secrets = new Map<string, StoredSecret>();
@@ -2086,6 +2092,56 @@ handleIpc('session:resize', (_event, { sessionId, cols, rows }: { sessionId: str
   return true;
 });
 handleIpc('session:reconnect', (_event, sessionId: string) => reconnectSession(sessionId));
+
+// ─── Discussion IPC Handlers ──────────────────────────────────────────────────
+
+handleIpc('discussion:start', async (_event, options: import('@/main/discussion-session').DiscussionOptions) => {
+  const discussion = await DiscussionSession.create(options);
+  discussionSessions.set(discussion['state'].sessionId, discussion);
+  
+  // Return initial state
+  return {
+    sessionId: discussion['state'].sessionId,
+    agents: options.agents.map((a: { id: string }) => a.id),
+    history: [],
+  };
+});
+
+handleIpc('discussion:stop', (_event, sessionId: string) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    discussion.stop();
+    discussionSessions.delete(sessionId);
+    return true;
+  }
+  return false;
+});
+
+handleIpc('discussion:get-history', (_event, sessionId: string) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    return discussion.getHistory();
+  }
+  return [];
+});
+
+handleIpc('discussion:send-message', async (_event, { sessionId, content }: { sessionId: string; content: string }) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    const history = await discussion.sendMessage(content);
+    return history;
+  }
+  return [];
+});
+
+handleIpc('discussion:list', () => {
+  return [...discussionSessions.entries()].map(([id, discussion]) => ({
+    sessionId: id,
+    agents: [...discussion['state'].agents.keys()],
+    messageCount: discussion.getHistory().length,
+    isRunning: discussion.isRunning(),
+  }));
+});
 
 handleIpc('git:status', (_event, repository: string) => gitStatus(resolveKnownWorkspace(repository)));
 handleIpc('git:diff', (_event, repository: string, filePath: string) => {
