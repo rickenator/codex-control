@@ -253,7 +253,7 @@ function providerLabel(provider?: Provider) {
   if (provider === 'ollama') return 'Ollama';
   if (provider === 'gpt56') return 'GPT-5.6';
   if (provider === 'lan') return 'LAN provider';
-  return 'Codex';
+  return 'AI assistant';
 }
 
 function formatUpdatedAt(updatedAt: number) {

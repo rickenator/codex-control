@@ -217,6 +217,33 @@ interface CodexAPI {
   lanRemoveProvider: (id: string) => Promise<CodexSettings>;
   lanUpdateProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) => Promise<CodexSettings>;
   lanDiscover: () => Promise<{ found: number; added: number; error?: string; providers: LanProviderConfig[] }>;
+
+  // Discussions (multi-agent)
+  startDiscussion: (opts: {
+    repository?: string;
+    branch?: string;
+    agents: Array<{ id: string; model?: string; customInstructions?: string }>;
+    maxTurns?: number;
+    moderatorStrategy?: 'round-robin' | 'context-aware' | 'user-select';
+    synthesisAgent?: string;
+  }) => Promise<{ sessionId: string; agents: string[]; history: DiscussionMessage[] }>;
+  stopDiscussion: (sessionId: string) => Promise<boolean>;
+  getDiscussionHistory: (sessionId: string) => Promise<DiscussionMessage[]>;
+  sendDiscussionMessage: (sessionId: string, content: string) => Promise<DiscussionMessage[]>;
+  listDiscussions: () => Promise<Array<{ sessionId: string; agents: string[]; messageCount: number; isRunning: boolean }>>;
+  onDiscussionMessage: (callback: (data: { sessionId: string; message: DiscussionMessage }) => void) => () => void;
+  onDiscussionEvent: (callback: (data: { sessionId: string; event: CodexEvent }) => void) => () => void;
+  onDiscussionError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
+  getAvailableAgents: () => Promise<Array<{ id: string; name: string }>>;
+}
+
+// Discussion types
+interface DiscussionMessage {
+  id: string;
+  role: 'user' | 'agent' | 'synthesis';
+  agentId?: string;
+  content: string;
+  timestamp: number;
 }
 
 interface SessionRecord {

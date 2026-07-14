@@ -153,7 +153,7 @@ export default function SecretsManager({ open, onClose, onNotice }: Props) {
               <span>Available to</span>
               <select className="codex-select" value={form.scope} onChange={(event) => setForm({ ...form, scope: event.target.value as SecretScope })}>
                 <option value="all">All task providers</option>
-                <option value="codex">Codex / OpenAI tasks</option>
+                <option value="codex">AI assistant tasks</option>
                 <option value="local">Local and LAN model tasks</option>
               </select>
             </label>
@@ -183,7 +183,7 @@ function formatBackend(backend: string) {
 }
 
 function scopeLabel(scope: SecretScope) {
-  if (scope === 'codex') return 'Codex only';
+  if (scope === 'codex') return 'AI assistant only';
   if (scope === 'local') return 'Local providers';
   return 'All providers';
 }

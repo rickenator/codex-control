@@ -197,4 +197,39 @@ contextBridge.exposeInMainWorld('codexApi', {
       ipcRenderer.invoke('system:check-updates'),
     checkProviders: () =>
       ipcRenderer.invoke('system:check-providers'),
+
+    // Discussions (multi-agent)
+    startDiscussion: (opts: {
+      repository?: string;
+      branch?: string;
+      agents: Array<{ id: string; model?: string; customInstructions?: string }>;
+      maxTurns?: number;
+      moderatorStrategy?: 'round-robin' | 'context-aware' | 'user-select';
+      synthesisAgent?: string;
+    }) => ipcRenderer.invoke('discussion:start', opts),
+    stopDiscussion: (sessionId: string) =>
+      ipcRenderer.invoke('discussion:stop', sessionId),
+    getDiscussionHistory: (sessionId: string) =>
+      ipcRenderer.invoke('discussion:get-history', sessionId),
+    sendDiscussionMessage: (sessionId: string, content: string) =>
+      ipcRenderer.invoke('discussion:send-message', { sessionId, content }),
+    listDiscussions: () =>
+      ipcRenderer.invoke('discussion:list'),
+    onDiscussionMessage: (callback: (data: { sessionId: string; message: any }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; message: any }) => callback(data);
+      ipcRenderer.on('discussion:message', handler);
+      return () => ipcRenderer.removeListener('discussion:message', handler);
+    },
+    onDiscussionEvent: (callback: (data: { sessionId: string; event: any }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; event: any }) => callback(data);
+      ipcRenderer.on('discussion:event', handler);
+      return () => ipcRenderer.removeListener('discussion:event', handler);
+    },
+    onDiscussionError: (callback: (data: { sessionId: string; error: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; error: string }) => callback(data);
+      ipcRenderer.on('discussion:error', handler);
+      return () => ipcRenderer.removeListener('discussion:error', handler);
+    },
+    getAvailableAgents: () =>
+      ipcRenderer.invoke('agents:list'),
 });

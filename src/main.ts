@@ -5,6 +5,8 @@ import { APP_PROTOCOL, APP_PROTOCOL_HOST, isSafeExternalUrl, isTrustedRendererUr
 import { startMobileBridge, type MobileBridgeHandle } from './main/mobile-bridge';
 import { normalizeMobileBridgePort, normalizeMobileBridgePublicUrl } from './main/mobile-pairing-config';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
+import { CodexAdapter, getAdapter } from './main/adapters';
+import { DiscussionSession } from '@/main/discussion-session';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'node:crypto';
@@ -15,6 +17,12 @@ import type { IPty } from 'node-pty';
 
 const pty = require('node-pty') as typeof import('node-pty');
 
+// Disable GPU compositing to avoid crashes in environments where the GPU
+// process cannot initialize (e.g. headless X11, containers, PTY sessions).
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("disable-features", "VizDisplayCompositor");
+
 protocol.registerSchemesAsPrivileged([{
   scheme: APP_PROTOCOL,
   privileges: {
@@ -23,6 +31,38 @@ protocol.registerSchemesAsPrivileged([{
     supportFetchAPI: true,
   },
 }]);
+
+
+// ─── Agent Adapter Emitters ────────────────────────────────────────────────────
+// Bridges main.ts event functions to the adapter interface.
+// Functions are referenced by name (hoisted) so they can be defined later.
+
+const agentEmitters = {
+  emitEvent: (event: import('./main/agent-adapter').AgentEvent) => {
+    recordEvent(event.session_id, event.type, event.content);
+  },
+  emitApproval: (approval: import('./main/agent-adapter').AgentApproval) => {
+    approvals.set(approval.id, approval as unknown as ApprovalRequest);
+    saveStore();
+    mainWindow?.webContents.send('codex:approval-request', approval);
+  },
+  emitTerminalOutput: (sessionId: string, data: string) => {
+    terminalOutput(sessionId, data);
+  },
+};
+
+// ─── Active Agent Adapter Instance ─────────────────────────────────────────────
+// Created once; main.ts delegates session lifecycle to it.
+// For now only Codex is available; OI and others follow in Phase 3+.
+
+let activeAdapter: import('./main/agent-adapter').AgentAdapter | null = null;
+
+function getOrCreateAdapter(agent: 'codex' | 'open-interpreter'): import('./main/agent-adapter').AgentAdapter {
+  if (!activeAdapter) {
+    activeAdapter = getAdapter(agent, agentEmitters);
+  }
+  return activeAdapter;
+}
 
 type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
 type Provider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
@@ -282,6 +322,11 @@ let mobileBridgeConfig: PersistedMobileBridgeConfig = {
 };
 const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
+
+// ─── Discussion Sessions ──────────────────────────────────────────────────────
+// Multi-agent discussion sessions (separate from regular sessions)
+
+const discussionSessions = new Map<string, DiscussionSession>();
 const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
 const secrets = new Map<string, StoredSecret>();
@@ -1447,14 +1492,70 @@ function gitApplyHunk(repository: string, filePath: string, hunkId: number, reve
   }
 }
 
-function startSession(options: SessionOptions) {
+async function startSession(options: SessionOptions) {
   const provider = options.provider || appSettings.defaultProvider;
   const repository = path.resolve(options.repository || defaultWorkspacePath());
   if (!fs.statSync(repository).isDirectory()) {
     throw new Error(`Workspace is not a directory: ${repository}`);
   }
   const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  return launchSession(sessionId, repository, options.branch || getBranch(repository), provider, options, false);
+  const branch = options.branch || getBranch(repository);
+
+  // Delegate session lifecycle to the adapter
+  const adapter = getOrCreateAdapter('codex');
+  const session = await adapter.launch({
+    repository,
+    branch,
+    agent: 'codex',
+    provider,
+    selectedLanProviderId: options.selectedLanProviderId,
+    remoteLlamaCpp: options.remoteLlamaCpp,
+    ollama: options.ollama,
+    defaultModel: options.defaultModel,
+    codexThreadId: options.codexThreadId,
+    codexPath: options.codexPath,
+  });
+
+  // Update main.ts session storage (UI state)
+  sessions.set(session.sessionId, {
+    id: session.sessionId,
+    pty: null,
+    repository: session.repository,
+    branch: session.branch,
+    provider,
+    status: 'running',
+    terminalBuffer: '',
+    args: [],
+    env: {},
+    codexCommand: resolveCodexCommand({ requested: options.codexPath }) || { executable: '', prefixArgs: [], displayPath: '' } as any,
+    codexThreadId: options.codexThreadId,
+    jsonRemainder: '',
+    lastStructuredError: undefined,
+    processedItemIds: new Set(),
+    activePrompt: undefined,
+    retryFreshAfterExit: false,
+    protocolRetryUsed: false,
+  });
+
+  // Update main.ts record storage (persistence)
+  records.set(session.sessionId, {
+    id: session.sessionId,
+    repository: session.repository,
+    branch: session.branch,
+    provider,
+    model: undefined,
+    baseUrl: undefined,
+    selectedLanProviderId: options.selectedLanProviderId,
+    codexThreadId: options.codexThreadId,
+    status: 'running',
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  });
+
+  saveStore();
+  emitSessionUpdate();
+  recordEvent(session.sessionId, 'system', `Ready in ${session.repository}`);
+  return { sessionId: session.sessionId, repository: session.repository, branch: session.branch };
 }
 
 function defaultWorkspacePath() {
@@ -1656,9 +1757,11 @@ function launchSession(
 }
 
 function stopSession(sessionId: string) {
-  const state = sessions.get(sessionId);
-  if (!state) return false;
-  state.pty?.kill();
+  // Delegate session stopping to the adapter
+  const adapter = activeAdapter;
+  if (adapter) {
+    adapter.stopSession(sessionId).catch(() => {});
+  }
   sessions.delete(sessionId);
   const record = records.get(sessionId);
   if (record) { record.status = 'stopped'; record.updated_at = Date.now(); }
@@ -1667,32 +1770,61 @@ function stopSession(sessionId: string) {
   return true;
 }
 
-function reconnectSession(sessionId: string) {
+async function reconnectSession(sessionId: string) {
   const record = records.get(sessionId);
   if (!record || sessions.has(sessionId)) return false;
   const branch = record.branch || getBranch(record.repository);
-  launchSession(sessionId, record.repository, branch, record.provider || appSettings.defaultProvider, {
+  const provider = record.provider || appSettings.defaultProvider;
+
+  // Delegate session lifecycle to the adapter
+  const adapter = getOrCreateAdapter('codex');
+  const session = await adapter.launch({
     repository: record.repository,
     branch,
-    provider: record.provider,
-    remoteLlamaCpp: record.provider === 'remote_llamacpp'
-      ? {
-          baseUrl: record.baseUrl,
-          model: record.model,
-          apiKey: appSettings.remoteLlamaCpp.apiKey,
-        }
-      : undefined,
+    agent: 'codex',
+    provider,
     selectedLanProviderId: record.selectedLanProviderId,
+    remoteLlamaCpp: provider === 'remote_llamacpp'
+      ? { baseUrl: record.baseUrl, model: record.model, apiKey: appSettings.remoteLlamaCpp.apiKey }
+      : undefined,
+    ollama: provider === 'ollama'
+      ? { baseUrl: appSettings.ollama.baseUrl, model: appSettings.ollama.model, apiKey: appSettings.ollama.apiKey }
+      : undefined,
+    defaultModel: appSettings.defaultModel,
     codexThreadId: record.codexThreadId,
-  }, true);
-  const updated = records.get(sessionId);
+  });
+
+  // Update main.ts session storage (UI state)
+  sessions.set(session.sessionId, {
+    id: session.sessionId,
+    pty: null,
+    repository: session.repository,
+    branch: session.branch,
+    provider,
+    status: 'running',
+    terminalBuffer: '',
+    args: [],
+    env: {},
+    codexCommand: resolveCodexCommand() || { executable: '', prefixArgs: [], displayPath: '' } as any,
+    codexThreadId: record.codexThreadId,
+    jsonRemainder: '',
+    lastStructuredError: undefined,
+    processedItemIds: new Set(),
+    activePrompt: undefined,
+    retryFreshAfterExit: false,
+    protocolRetryUsed: false,
+  });
+
+  // Update main.ts record storage (persistence)
+  const updated = records.get(session.sessionId);
   if (updated) {
     updated.status = 'running';
     updated.updated_at = Date.now();
-    records.set(sessionId, updated);
+    records.set(session.sessionId, updated);
     saveStore();
   }
   emitSessionUpdate();
+  recordEvent(session.sessionId, 'system', `Reconnected in ${session.repository}`);
   const recoveredIds = [...sessions.keys()];
   if (recoveredIds.length > 0) {
     mainWindow?.webContents.send('codex:sessions-recovered', recoveredIds);
@@ -1702,8 +1834,10 @@ function reconnectSession(sessionId: string) {
 
 
 function deleteSession(sessionId: string) {
-  const state = sessions.get(sessionId);
-  if (state) { try { state.pty?.kill(); } catch {} sessions.delete(sessionId); }
+  // Delegate session stopping to the adapter
+  const adapter = activeAdapter;
+  if (adapter) { try { adapter.stopSession(sessionId).catch(() => {}); } catch {} }
+  sessions.delete(sessionId);
   records.delete(sessionId);
   events.delete(sessionId);
   saveStore();
@@ -1711,11 +1845,12 @@ function deleteSession(sessionId: string) {
   return true;
 }
 
-function sendSessionPrompt(sessionId: string, input: string) {
+async function sendSessionPrompt(sessionId: string, input: string) {
   const state = sessions.get(sessionId);
   const prompt = input.trim();
-  if (!state || !prompt || state.pty) return false;
+  if (!prompt) return false;
 
+  // Image display shortcut (agent-agnostic UI logic)
   const shouldDisplayImages = isImageDisplayRequest(sessionId, prompt);
   recordEvent(sessionId, 'prompt', prompt);
   const record = records.get(sessionId);
@@ -1725,7 +1860,9 @@ function sendSessionPrompt(sessionId: string, input: string) {
     emitSessionUpdate();
   }
   if (shouldDisplayImages) {
-    const imagePaths = findWorkspaceImages(state.repository, 12, prompt);
+    const repo = state?.repository || records.get(sessionId)?.repository;
+    if (!repo) return false;
+    const imagePaths = findWorkspaceImages(repo, 12, prompt);
     if (imagePaths.length === 0) {
       recordEvent(sessionId, 'response', 'No previewable images were found in this task directory.');
     } else {
@@ -1735,11 +1872,11 @@ function sendSessionPrompt(sessionId: string, input: string) {
     return true;
   }
 
-  state.activePrompt = prompt;
-  state.retryFreshAfterExit = false;
-  state.protocolRetryUsed = false;
-  launchPromptProcess(state, prompt);
-  return true;
+  // Delegate prompt sending to the adapter
+  if (state?.pty) return false; // PTY is busy (agent is responding)
+  const adapter = activeAdapter;
+  if (!adapter) return false;
+  return adapter.sendPrompt(sessionId, prompt);
 }
 
 function launchPromptProcess(state: SessionState, prompt: string) {
@@ -1961,6 +2098,80 @@ handleIpc('session:resize', (_event, { sessionId, cols, rows }: { sessionId: str
   return true;
 });
 handleIpc('session:reconnect', (_event, sessionId: string) => reconnectSession(sessionId));
+
+// ─── Discussion IPC Handlers ──────────────────────────────────────────────────
+
+handleIpc('discussion:start', async (_event, options: import('@/main/discussion-session').DiscussionOptions) => {
+  const sessionId = `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  
+  // Create emitters that send IPC events to the renderer
+  const emitters: import('@/main/discussion-session').DiscussionEmitters = {
+    emitMessage: (message) => {
+      mainWindow?.webContents.send('discussion:message', { sessionId, message });
+    },
+    emitEvent: (event) => {
+      mainWindow?.webContents.send('discussion:event', { sessionId, event });
+    },
+    emitError: (error) => {
+      mainWindow?.webContents.send('discussion:error', { sessionId, error });
+    },
+  };
+  
+  const discussion = await DiscussionSession.create(options, emitters);
+  discussionSessions.set(sessionId, discussion);
+  
+  // Return initial state
+  return {
+    sessionId,
+    agents: options.agents.map((a: { id: string }) => a.id),
+    history: [],
+  };
+});
+
+handleIpc('discussion:stop', (_event, sessionId: string) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    discussion.stop();
+    discussionSessions.delete(sessionId);
+    return true;
+  }
+  return false;
+});
+
+handleIpc('discussion:get-history', (_event, sessionId: string) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    return discussion.getHistory();
+  }
+  return [];
+});
+
+handleIpc('discussion:send-message', async (_event, { sessionId, content }: { sessionId: string; content: string }) => {
+  const discussion = discussionSessions.get(sessionId);
+  if (discussion) {
+    const history = await discussion.sendMessage(content);
+    return history;
+  }
+  return [];
+});
+
+handleIpc('discussion:list', () => {
+  return [...discussionSessions.entries()].map(([id, discussion]) => ({
+    sessionId: id,
+    agents: [...discussion['state'].agents.keys()],
+    messageCount: discussion.getHistory().length,
+    isRunning: discussion.isRunning(),
+  }));
+});
+
+handleIpc('agents:list', () => {
+  return [
+    { id: 'codex', name: 'Codex' },
+    { id: 'open-interpreter', name: 'Open Interpreter' },
+    { id: 'aider', name: 'Aider' },
+    { id: 'claude-code', name: 'Claude Code' },
+  ];
+});
 
 handleIpc('git:status', (_event, repository: string) => gitStatus(resolveKnownWorkspace(repository)));
 handleIpc('git:diff', (_event, repository: string, filePath: string) => {
