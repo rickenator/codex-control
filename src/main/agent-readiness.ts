@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+
+import { resolveCodexCommand } from './platform';
 
 export type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 export type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
@@ -52,6 +54,11 @@ interface AgentSpec {
   supportTier: AgentSupportTier;
   installDiagnostic: string;
   authentication: 'codex' | 'not-required' | 'unknown';
+}
+
+interface ResolvedProbeCommand {
+  command: string;
+  prefixArgs: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 4_000;
@@ -119,7 +126,7 @@ export const runCommandProbe: CommandRunner = request => new Promise(resolve => 
     resolve(result);
   };
 
-  let child;
+  let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(request.command, request.args, {
       env: request.env,
@@ -137,14 +144,15 @@ export const runCommandProbe: CommandRunner = request => new Promise(resolve => 
     try {
       child.kill();
     } catch {
-      finish({ exitCode: null, stdout, stderr, timedOut: true });
+      // The readiness result must not wait for a process that ignores termination.
     }
+    finish({ exitCode: null, stdout, stderr, timedOut: true });
   }, request.timeoutMs);
 
-  child.stdout?.on('data', chunk => {
+  child.stdout.on('data', chunk => {
     stdout = appendLimited(stdout, chunk);
   });
-  child.stderr?.on('data', chunk => {
+  child.stderr.on('data', chunk => {
     stderr = appendLimited(stderr, chunk);
   });
   child.on('error', error => {
@@ -167,6 +175,18 @@ function probeOutput(result: CommandProbeResult): string {
 
 function firstLine(value: string): string | undefined {
   return value.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+}
+
+function resolvedCommand(spec: AgentSpec, env: NodeJS.ProcessEnv, useNativeResolution: boolean): ResolvedProbeCommand {
+  if (spec.id === 'codex' && useNativeResolution) {
+    const command = resolveCodexCommand({ env });
+    if (command) return { command: command.executable, prefixArgs: command.prefixArgs };
+  }
+
+  return {
+    command: env[spec.commandEnv]?.trim() || spec.command,
+    prefixArgs: [],
+  };
 }
 
 function unavailable(
@@ -196,12 +216,18 @@ async function detectOne(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   checkedAt: number,
+  useNativeResolution: boolean,
 ): Promise<AgentReadiness> {
-  const command = env[spec.commandEnv]?.trim() || spec.command;
+  const command = resolvedCommand(spec, env, useNativeResolution);
   let versionResult: CommandProbeResult;
 
   try {
-    versionResult = await runner({ command, args: spec.versionArgs, timeoutMs, env });
+    versionResult = await runner({
+      command: command.command,
+      args: [...command.prefixArgs, ...spec.versionArgs],
+      timeoutMs,
+      env,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return unavailable(spec, 'error', `${spec.name} readiness check failed: ${message}`, checkedAt);
@@ -223,7 +249,12 @@ async function detectOne(
   if (spec.authentication === 'codex') {
     let authResult: CommandProbeResult;
     try {
-      authResult = await runner({ command, args: ['login', 'status'], timeoutMs, env });
+      authResult = await runner({
+        command: command.command,
+        args: [...command.prefixArgs, 'login', 'status'],
+        timeoutMs,
+        env,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -258,7 +289,9 @@ async function detectOne(
     }
 
     const authOutput = probeOutput(authResult);
-    const authenticated = authResult.exitCode === 0 && /logged in|authenticated/i.test(authOutput);
+    const explicitlyUnauthenticated = /\bnot logged in\b|\bnot authenticated\b|\bunauthenticated\b/i.test(authOutput);
+    const positivelyAuthenticated = /\blogged in\b|\bauthenticated\b/i.test(authOutput);
+    const authenticated = authResult.exitCode === 0 && !explicitlyUnauthenticated && positivelyAuthenticated;
     return {
       id: spec.id,
       name: spec.name,
@@ -312,6 +345,14 @@ export async function detectAgentReadiness(options: AgentReadinessOptions = {}):
   const env = options.env || process.env;
   const timeoutMs = Math.max(100, options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const checkedAt = (options.now || Date.now)();
+  const useNativeResolution = runner === runCommandProbe;
 
-  return Promise.all(AGENT_SPECS.map(spec => detectOne(spec, runner, env, timeoutMs, checkedAt)));
+  return Promise.all(AGENT_SPECS.map(spec => detectOne(
+    spec,
+    runner,
+    env,
+    timeoutMs,
+    checkedAt,
+    useNativeResolution,
+  )));
 }
