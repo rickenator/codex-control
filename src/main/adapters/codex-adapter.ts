@@ -62,6 +62,8 @@ interface SessionState {
   activePrompt?: string;
   retryFreshAfterExit: boolean;
   protocolRetryUsed: boolean;
+  responseBuffer: string;
+  responseResolve?: ((value: string) => void) | null;
 }
 
 // ─── CodexAdapter Implementation ──────────────────────────────────────────────
@@ -151,17 +153,20 @@ export class CodexAdapter implements AgentAdapter {
     };
   }
 
-  async sendPrompt(sessionId: string, input: string): Promise<boolean> {
+  async sendPrompt(sessionId: string, input: string): Promise<string> {
     const state = CodexAdapter.sessions.get(sessionId);
     const prompt = input.trim();
-    if (!state || !prompt || state.pty) return false;
+    if (!state || !prompt || state.pty) return '';
 
     state.activePrompt = prompt;
     state.retryFreshAfterExit = false;
     state.protocolRetryUsed = false;
+    state.responseBuffer = '';
 
-    this.launchPromptProcess(state, prompt);
-    return true;
+    return new Promise<string>((resolve) => {
+      state.responseResolve = resolve;
+      this.launchPromptProcess(state, prompt);
+    });
   }
 
   async stopSession(sessionId: string): Promise<boolean> {
@@ -213,6 +218,7 @@ export class CodexAdapter implements AgentAdapter {
       activePrompt: undefined,
       retryFreshAfterExit: false,
       protocolRetryUsed: false,
+      responseBuffer: '',
     };
   }
 
@@ -339,6 +345,7 @@ export class CodexAdapter implements AgentAdapter {
         if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
           const text = typeof event.item.text === 'string' ? event.item.text : event.item.content;
           if (text?.trim()) {
+            state.responseBuffer += text.trim() + '\n';
             this.emitters.emitEvent({
               id: `evt_${event.item.id}`,
               type: 'response',
@@ -465,6 +472,12 @@ export class CodexAdapter implements AgentAdapter {
           timestamp: Date.now(),
           session_id: state.id,
         });
+      }
+      // Resolve the sendPrompt promise with accumulated response
+      if (state.responseResolve) {
+        const response = state.responseBuffer.trim();
+        state.responseResolve(response);
+        state.responseResolve = null;
       }
       state.activePrompt = undefined;
     });

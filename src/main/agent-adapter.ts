@@ -108,9 +108,10 @@ export interface AgentAdapter {
   
   /**
    * Send a prompt to an active session.
-   * Returns true if the prompt was sent successfully.
+   * Returns the accumulated response string when the agent finishes,
+   * or an empty string if the prompt could not be sent.
    */
-  sendPrompt(sessionId: string, input: string): Promise<boolean>;
+  sendPrompt(sessionId: string, input: string): Promise<string>;
   
   /**
    * Stop a running session (kill PTY, clean up).
@@ -199,4 +200,3 @@ export interface EventParser {
   /** Check if the raw output contains an approval request */
   parseApproval?(raw: string, sessionId: string): AgentApproval | null;
 }
-

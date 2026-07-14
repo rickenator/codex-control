@@ -137,7 +137,8 @@ function createResponseCapturingEmitters(
       baseEmitters.emitMessage(message);
     },
     emitEvent: (event) => {
-      // Accumulate response content for the agent that owns this session
+      // Accumulate response content per agent. Each agent has exactly one session,
+      // so we map event.session_id -> agentId via the agents map.
       if (event.type === 'response' && event.session_id) {
         for (const [agentId, session] of state.agents) {
           if (session.sessionId === event.session_id) {
@@ -327,19 +328,26 @@ export class DiscussionSession {
     // Build context for the agent
     const context = this.buildAgentContext(agentId);
     
-    // Send prompt to agent
-    const success = await adapter.sendPrompt(session.sessionId, context);
+    // Send prompt to agent — returns accumulated response for Codex,
+    // or empty string for agents that stream via events (OI, Aider, Claude).
+    const response = await adapter.sendPrompt(session.sessionId, context);
     
-    if (!success) {
-      console.warn(`[Discussion] Failed to send prompt to ${agentId}`);
-      this.state.isProcessing.set(agentId, false);
-      return;
-    }
-
-    // Wait for agent response
-    const response = await this.waitForAgentResponse(agentId, session);
-    
-    if (response) {
+    if (!response) {
+      // For streaming agents, wait for event-based accumulation
+      const streamedResponse = await this.waitForStreamedResponse(agentId);
+      if (streamedResponse) {
+        const agentMsg: DiscussionMessage = {
+          id: `msg_${Date.now()}`,
+          role: 'agent',
+          agentId,
+          content: streamedResponse,
+          timestamp: Date.now(),
+        };
+        this.state.messages.push(agentMsg);
+        this.state.emitters.emitMessage(agentMsg);
+      }
+    } else {
+      // Codex returned accumulated response directly
       const agentMsg: DiscussionMessage = {
         id: `msg_${Date.now()}`,
         role: 'agent',
@@ -349,26 +357,36 @@ export class DiscussionSession {
       };
       this.state.messages.push(agentMsg);
       this.state.emitters.emitMessage(agentMsg);
-    } else {
-      // Agent didn't produce a response — send a nudge
-      const nudge = `Please respond to the discussion.`;
-      await adapter.sendPrompt(session.sessionId, nudge);
-      const nudgeResponse = await this.waitForAgentResponse(agentId, session);
+    }
+    
+    this.state.isProcessing.set(agentId, false);
+  }
+
+  private async waitForStreamedResponse(agentId: string): Promise<string | null> {
+    const maxWaitMs = 60_000;
+    const pollInterval = 500;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
       
-      if (nudgeResponse) {
-        const agentMsg: DiscussionMessage = {
-          id: `msg_${Date.now()}`,
-          role: 'agent',
-          agentId,
-          content: nudgeResponse,
-          timestamp: Date.now(),
-        };
-        this.state.messages.push(agentMsg);
-        this.state.emitters.emitMessage(agentMsg);
+      const response = this.state.pendingResponses.get(agentId) || '';
+      
+      // If we have content and it hasn't changed for 3 seconds, consider it done
+      if (response.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const stillSame = this.state.pendingResponses.get(agentId) === response;
+        if (stillSame) {
+          this.state.isProcessing.set(agentId, false);
+          return response.trim() || null;
+        }
       }
     }
 
+    // Timeout
+    const response = this.state.pendingResponses.get(agentId) || '';
     this.state.isProcessing.set(agentId, false);
+    return response.trim() || null;
   }
 
   private selectNextAgent(): string | null {
@@ -474,10 +492,11 @@ export class DiscussionSession {
 
     const synthesisPrompt = `Based on the following discussion between multiple AI agents, provide a final synthesized answer that addresses the user's original question:\n\n${context}`;
 
-    const success = await adapter.sendPrompt(session.sessionId, synthesisPrompt);
+    const response = await adapter.sendPrompt(session.sessionId, synthesisPrompt);
     
-    if (success) {
-      const response = await this.waitForAgentResponse(this.state.synthesisAgent!, session);
+    if (response) {
+      // For streaming synthesis agents, wait for event accumulation
+      const finalResponse = response.trim() || await this.waitForStreamedResponse(this.state.synthesisAgent!);
       
       if (response) {
         const synthesisMsg: DiscussionMessage = {

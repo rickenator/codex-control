@@ -134,16 +134,16 @@ export class OpenInterpreterAdapter implements AgentAdapter {
     };
   }
 
-  async sendPrompt(sessionId: string, input: string): Promise<boolean> {
+  async sendPrompt(sessionId: string, input: string): Promise<string> {
     const state = OpenInterpreterAdapter.sessions.get(sessionId);
     const prompt = input.trim();
-    if (!state || !prompt || !state.pty) return false;
+    if (!state || !prompt || !state.pty) return '';
 
     state.activePrompt = prompt;
     
     // OI reads from stdin — write the prompt followed by newline
     state.pty.write(prompt + '\n');
-    return true;
+    return "";
   }
 
   async stopSession(sessionId: string): Promise<boolean> {
