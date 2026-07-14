@@ -1,19 +1,40 @@
 /**
  * Agent Adapter Registry
- * 
+ *
  * Factory function that returns the appropriate adapter based on the agent type.
- * This keeps main.ts clean and makes it easy to add new agents.
+ * This module also owns the readiness IPC endpoint because it is loaded once by
+ * the Electron main process alongside the adapter registry.
  */
 
-import type { AgentAdapter, AgentEvent, AgentApproval, EventEmitters } from '../agent-adapter';
+import { ipcMain } from 'electron';
+
+import { isTrustedRendererUrl } from '../app-protocol';
+import { detectAgentReadiness } from '../agent-readiness';
+import type { AgentAdapter, EventEmitters } from '../agent-adapter';
 import { CodexAdapter } from './codex-adapter';
 import { OpenInterpreterAdapter } from './open-interpreter-adapter';
 import { AiderAdapter } from './aider-adapter';
 import { ClaudeCodeAdapter } from './claude-code-adapter';
 
+export const AGENT_READINESS_CHANNEL = 'agents:readiness';
+
+function registerAgentReadinessHandler(): void {
+  ipcMain.removeHandler(AGENT_READINESS_CHANNEL);
+  ipcMain.handle(AGENT_READINESS_CHANNEL, event => {
+    const senderUrl = event.senderFrame?.url || event.sender.getURL();
+    const isMainFrame = event.senderFrame === event.sender.mainFrame;
+    if (!isMainFrame || !isTrustedRendererUrl(senderUrl)) {
+      throw new Error('Rejected agent readiness request from an untrusted renderer');
+    }
+    return detectAgentReadiness();
+  });
+}
+
+registerAgentReadinessHandler();
+
 export function getAdapter(
   agent: 'codex' | 'open-interpreter' | 'aider' | 'claude-code',
-  emitters: EventEmitters
+  emitters: EventEmitters,
 ): AgentAdapter {
   switch (agent) {
     case 'codex':
