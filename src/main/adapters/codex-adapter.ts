@@ -1,9 +1,15 @@
 /**
  * CodexAdapter — wraps the Codex CLI as a pluggable agent adapter.
  * 
- * This is the current production code, refactored into a class that implements
- * AgentAdapter. All existing functionality is preserved; the interface is just
- * a cleaner boundary for future adapters.
+ * This adapter owns:
+ * - PTY lifecycle (spawn, kill)
+ * - Command building (args for Codex with provider config)
+ * - Output parsing (normalize JSONL → unified events)
+ * 
+ * main.ts owns:
+ * - Session storage
+ * - Event emission to UI
+ * - Approval handling
  */
 
 import { app } from 'electron';
