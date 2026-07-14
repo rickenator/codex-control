@@ -6,7 +6,6 @@ import type {
   AgentSessionOptions,
   EventEmitters,
 } from './agent-adapter';
-import { getAdapter } from './adapters';
 
 export type DiscussionAgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 
@@ -171,7 +170,11 @@ export class DiscussionSession {
       },
     };
 
-    const adapterFactory = options.adapterFactory || getAdapter;
+    // Keep the orchestration module importable in plain Node tests. The real
+    // adapter registry pulls in Electron and native PTY modules, so load it only
+    // when production code did not supply an injected adapter factory.
+    const adapterFactory = options.adapterFactory
+      || (await import('./adapters')).getAdapter;
 
     try {
       for (const agentConfig of options.agents) {
