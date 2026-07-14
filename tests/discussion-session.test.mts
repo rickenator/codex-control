@@ -94,10 +94,9 @@ test('captures streamed adapter responses in a discussion turn', async () => {
     repository: process.cwd(),
     agents: [{ id: 'open-interpreter' }],
     maxTurns: 1,
-    adapterFactory: fakeFactory({ 'open-interpreter': 'streamed' }),
     responseTimeoutMs: 500,
     responseStableMs: 10,
-  }, output.emitters);
+  }, output.emitters, fakeFactory({ 'open-interpreter': 'streamed' }));
 
   const history = await discussion.sendMessage('Write a small Python function.');
 
@@ -113,10 +112,9 @@ test('handles direct and streamed agents in deterministic round-robin order', as
     repository: process.cwd(),
     agents: [{ id: 'codex' }, { id: 'aider' }],
     maxTurns: 2,
-    adapterFactory: fakeFactory({ codex: 'direct', aider: 'streamed' }),
     responseTimeoutMs: 500,
     responseStableMs: 10,
-  }, output.emitters);
+  }, output.emitters, fakeFactory({ codex: 'direct', aider: 'streamed' }));
 
   const history = await discussion.sendMessage('Review this repository.');
   const agentMessages = history.filter(message => message.role === 'agent');
@@ -136,10 +134,9 @@ test('captures a streamed synthesis response', async () => {
     agents: [{ id: 'codex' }, { id: 'open-interpreter' }],
     maxTurns: 1,
     synthesisAgent: 'open-interpreter',
-    adapterFactory: fakeFactory({ codex: 'direct', 'open-interpreter': 'streamed' }),
     responseTimeoutMs: 500,
     responseStableMs: 10,
-  }, output.emitters);
+  }, output.emitters, fakeFactory({ codex: 'direct', 'open-interpreter': 'streamed' }));
 
   const history = await discussion.sendMessage('Reach a recommendation.');
   const synthesis = history.find(message => message.role === 'synthesis');
@@ -155,8 +152,7 @@ test('resets the turn budget for each new user message', async () => {
     repository: process.cwd(),
     agents: [{ id: 'codex' }],
     maxTurns: 1,
-    adapterFactory: fakeFactory({ codex: 'direct' }),
-  }, output.emitters);
+  }, output.emitters, fakeFactory({ codex: 'direct' }));
 
   await discussion.sendMessage('First question.');
   const history = await discussion.sendMessage('Second question.');
@@ -175,10 +171,9 @@ test('rejects a second message while a streamed turn is still running', async ()
     repository: process.cwd(),
     agents: [{ id: 'aider' }],
     maxTurns: 1,
-    adapterFactory: fakeFactory({ aider: 'streamed' }),
     responseTimeoutMs: 1_000,
     responseStableMs: 200,
-  }, output.emitters);
+  }, output.emitters, fakeFactory({ aider: 'streamed' }));
 
   const firstMessage = discussion.sendMessage('First question.');
   await assert.rejects(
