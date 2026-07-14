@@ -17,12 +17,19 @@ import {
 class FakeAdapter implements AgentAdapter {
   private sessionId = '';
   private turn = 0;
+  private readonly agentId: string;
+  private readonly emitters: EventEmitters;
+  private readonly mode: 'direct' | 'streamed';
 
   constructor(
-    private readonly agentId: string,
-    private readonly emitters: EventEmitters,
-    private readonly mode: 'direct' | 'streamed',
-  ) {}
+    agentId: string,
+    emitters: EventEmitters,
+    mode: 'direct' | 'streamed',
+  ) {
+    this.agentId = agentId;
+    this.emitters = emitters;
+    this.mode = mode;
+  }
 
   async launch(options: AgentSessionOptions): Promise<AgentSession> {
     this.sessionId = `${this.agentId}-session`;
