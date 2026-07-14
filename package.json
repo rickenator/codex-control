@@ -2,7 +2,7 @@
   "name": "consiglio",
   "version": "0.1.0",
   "description": "A cross-platform desktop control plane for Codex-compatible agents.",
-  "author": "Rick <rick@apex>",
+  "author": "Rick Goldberg and Aniviza LLC",
   "license": "Apache-2.0",
   "private": true,
   "main": "dist/main.js",

@@ -1,102 +1,228 @@
-# Consiglio
+<div align="center">
+  <img src="build/icons/128x128.png" width="96" height="96" alt="Consiglio icon">
+  <h1>Consiglio</h1>
+  <p><strong>A focused desktop workspace for persistent Codex tasks.</strong></p>
+  <p>Start typing immediately. Keep the conversation, files, provider, and Codex thread when the app restarts.</p>
+  <p>
+    <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-5ca8ff?style=flat-square">
+    <img alt="Electron" src="https://img.shields.io/badge/shell-Electron-9de4f2?style=flat-square">
+    <img alt="React" src="https://img.shields.io/badge/UI-React-61dafb?style=flat-square">
+    <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-f5c542?style=flat-square">
+  </p>
+</div>
 
-A Linux desktop client for running persistent Codex tasks against OpenAI or local OpenAI-compatible providers.
+---
 
-## Architecture
+Consiglio wraps the Codex CLI in a native desktop workflow. It is designed for long-running work rather than disposable chats: tasks reconnect automatically, prompts and responses remain copyable, activity is visible, and repository files can be inspected without leaving the conversation.
 
-- **Frontend**: React + TypeScript (Vite)
-- **Shell**: Electron (Linux packaging: AppImage + .deb)
-- **Codex backend**: structured `codex exec --json` sessions through node-pty
-- **State**: persistent JSON task and event history in Electron's user-data directory
-- **Files**: workspace browser with text and image previews
+## What It Does
 
-## Product surfaces
+| Surface | Behavior |
+| --- | --- |
+| **Conversation** | Streams prompts, responses, command activity, errors, and a clear working indicator. |
+| **Task rail** | Keeps multiple tasks available and reconnects the last selected task at startup. |
+| **Recovery** | Preserves Codex thread IDs, history, repository, provider, and per-task drafts across shutdowns and crashes. |
+| **Files** | Browses the active workspace and previews text files and images in the app. |
+| **Providers** | Runs the normal Codex profile, GPT-5.6, Ollama, remote llama.cpp, or discovered LAN endpoints. |
+| **Secrets** | Encrypts API keys through Electron `safeStorage` and injects scoped environment variables into task processes. |
+| **Approvals** | Surfaces command approval requests with the command and affected paths. |
 
-1. **Task rail** — persistent and automatically reconnected Codex tasks
-2. **Conversation** — copyable prompts, responses, tool activity, errors, and working state
-3. **Files** — safe workspace browsing with text and inline image previews
-4. **Providers** — Codex, remote llama.cpp, Ollama, and configured LAN endpoints
+## Start Here
 
-## Milestones
+### Requirements
 
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| M0 | Repository scaffold, Electron shell, C++ native addon stubs, React layout | ✅ Done |
-| M1 | Codex process/app-server connection and event capture | ✅ Done |
-| M2 | Prompt/response timeline and reconnect | ✅ Done |
-| M3 | Approval UI with exact command details | ✅ Done |
-| M4 | Git status and unified diff | ✅ Done |
-| M5 | Session browser and persistence | ✅ Done |
-| M6 | Local llama.cpp provider validation | ✅ Done |
-| M7 | Packaging for Ubuntu (AppImage + .deb) | ✅ Done |
-| M8 | Dogfood on a non-ATT-1 project | ⏳ Pending |
+- Linux desktop environment
+- Node.js 20 or newer
+- npm
+- A working `codex` executable on `PATH`
 
-## Key design rule
-
-The GUI must never become a simplified toy layer. Every visual action should have an inspectable underlying command, event, file operation, or protocol message. The user should be able to copy the equivalent CLI command whenever one exists.
-
-## Development
+### Install
 
 ```bash
-# Install dependencies
+git clone https://github.com/rickenator/Consiglio.git
+cd Consiglio
 npm install
-
-# Install the durable launcher
 mkdir -p ~/bin
 ln -sf "$PWD/bin/consiglio" ~/bin/consiglio
+```
 
-# Start from any directory
+Make sure `~/bin` is on `PATH`, then launch from any directory:
+
+```bash
 consiglio
 ```
 
-## Remote llama.cpp
+The launcher builds the current checkout and opens the Electron app. No workspace selection is required: Consiglio reconnects the last task when one exists and creates a task against the Consiglio checkout when none exist.
 
-New tasks can launch Codex against a remote `llama-server` endpoint directly.
+## Everyday Workflow
 
-- Select `Remote llama.cpp` under the optional task settings.
-- Enter the server base URL, such as `http://192.168.1.243:8081`.
-- Enter the model name used by that server.
-- Leave the API key as the default `llama.cpp` unless your server expects something else.
-- The app passes the required Codex provider overrides, including `wire_api = "responses"`, for the spawned session.
+1. Launch `consiglio`.
+2. Type a request and press Enter.
+3. Watch the working indicator and command activity while Codex runs.
+4. Open **Files** to inspect generated files, text, or images.
+5. Switch tasks from the left rail without losing conversation state.
 
-## Desktop ergonomics
+Use `Shift+Enter` for a newline. Conversation text supports normal selection, copy, paste, and native right-click menus.
 
-- Window size and maximized state are remembered between launches.
-- The last task reconnects automatically at startup; a task is created automatically when none exist.
-- `Ctrl/Cmd+N` opens the optional folder/task dialog from the native app menu.
-- The app uses a real Linux-style application menu for reload, zoom, developer tools, and fullscreen.
-- The Settings panel makes local-provider isolation, web search, and multi-agent behavior explicit and persistent.
+## Crash And Shutdown Recovery
 
-## Packaging
+Task state is written to Electron's user-data directory as work happens. On the next launch, Consiglio restores the selected task and reconnects it with the original Codex thread ID.
 
-Build a Linux package with:
+The following state survives a restart:
+
+- Conversation and activity history
+- Codex thread ID
+- Repository and branch
+- Provider, model, and endpoint identity
+- Original task creation time
+- Unsent composer draft for each task
+
+If shutdown interrupts a response, Consiglio replaces the stale working state with a visible recovery message. Select **Continue task** to resume the same Codex thread instead of starting a disconnected conversation.
+
+## API Keys And MCP
+
+Open **Secrets** in the conversation header to add credentials. Consiglio stores only encrypted values on disk, restricts the secrets file to the current OS user, and never sends saved values back to the renderer. A saved value can be replaced or removed, but not revealed.
+
+Each credential can be scoped to:
+
+- All task providers
+- Codex and OpenAI tasks
+- Local and LAN model tasks
+
+Credential updates apply to subsequent Codex task processes, including the next turn in an existing task.
+
+### STDIO MCP Server
+
+Reference the saved environment variable in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.example]
+command = "example-mcp"
+env_vars = ["EXAMPLE_API_KEY"]
+```
+
+### Streamable HTTP MCP Server
+
+```toml
+[mcp_servers.example]
+url = "https://example.com/mcp"
+bearer_token_env_var = "EXAMPLE_API_KEY"
+```
+
+The **MCP config** button beside a credential copies both patterns with the correct variable name.
+
+> [!NOTE]
+> Local llama.cpp and LAN sessions use isolated Codex profiles by default. Isolation keeps the normal Codex MCP server list out of those sessions; injecting a key does not install or configure an MCP server.
+
+## Providers
+
+### Codex
+
+Uses the normal Codex profile, authentication, model configuration, and MCP configuration from the host.
+
+### Remote llama.cpp
+
+Consiglio configures Codex's OpenAI-compatible provider automatically. Supply the endpoint and model in **Providers**. A typical endpoint is:
+
+```text
+http://192.168.1.243:8081
+```
+
+The server must support the Responses API shape expected by Codex. The default placeholder API key is `llama.cpp`; replace it only when the server requires authentication.
+
+### Ollama And LAN
+
+Ollama can be selected directly. Compatible llama.cpp servers can also be added manually or discovered on the local network from **Providers**.
+
+## Keyboard And Desktop Behavior
+
+| Action | Shortcut or behavior |
+| --- | --- |
+| New task | `Ctrl/Cmd+N` |
+| Send prompt | `Enter` |
+| Newline in prompt | `Shift+Enter` |
+| Restore task | Automatic at startup |
+| Window size | Remembered between launches |
+| Copy and paste | Native menu and standard platform shortcuts |
+
+## Development
+
+Run the complete desktop app:
+
+```bash
+npm run dev:all
+```
+
+Build all three application targets:
 
 ```bash
 npm run build
+```
+
+Run TypeScript checks:
+
+```bash
+./node_modules/.bin/tsc --noEmit -p tsconfig.json
+./node_modules/.bin/tsc --noEmit -p src/tsconfig.json
+```
+
+## Packaging
+
+Build Linux packages with:
+
+```bash
 npm run package:linux
 ```
 
-The release command produces both an AppImage and a Debian package. The Debian
-package is intentionally uncompressed so local release builds complete
-reliably; use the smaller AppImage when download size matters.
+This produces an AppImage and a Debian package. Packaging metadata for macOS and Windows also exists, but Linux is the currently exercised desktop target.
 
-## Repository layout
+## Architecture
 
+```text
+Consiglio
+├── bin/consiglio                   durable launcher
+├── src/main.ts                     Electron process, Codex runner, persistence
+├── src/preload.ts                  narrow contextBridge API
+├── src/App.tsx                     desktop shell
+├── src/features/sessions/          task rail and conversation timeline
+├── src/features/files/             workspace browser and previews
+├── src/features/secrets/           encrypted credential manager
+├── src/main/lan-discovery.ts       local provider discovery
+└── tests/fixtures/codex-events/    protocol fixtures
 ```
-consiglio/
-  native/               # Legacy native-addon experiments (not packaged at runtime)
-  src/                  # Electron + React frontend
-    main.ts             # Electron main process
-    preload.ts          # contextBridge API
-    renderer.tsx        # React entry point
-    App.tsx             # Task rail, conversation, and file-pane shell
-    features/           # Feature modules
-      sessions/         # Session list, event timeline
-      files/            # Workspace file browser and previews
-    components/         # Shared UI components (TerminalPane, etc.)
-  tests/fixtures/codex-events/  # Protocol event fixtures for regression tests
+
+The renderer never launches commands or reads credentials directly. Electron's main process owns Codex subprocesses, filesystem access, persistence, provider environment setup, and encryption. The preload bridge exposes a bounded IPC surface to React.
+
+## Troubleshooting
+
+### A prompt does nothing
+
+Open the task activity and copy the displayed error. Confirm that `codex` runs from a terminal and that the selected provider is reachable.
+
+```bash
+codex --version
 ```
+
+### MCP cannot see a key
+
+Confirm all three parts independently:
+
+1. The credential is enabled in **Secrets**.
+2. The MCP server references the exact variable through `env_vars`, `bearer_token_env_var`, or `env_http_headers`.
+3. The task uses a Codex profile that contains that MCP server configuration.
+
+Restart or reconnect the task after changing MCP server configuration. Key presence and service/network reachability are separate checks.
+
+### A local provider loses MCP tools
+
+This is expected when local-provider isolation is enabled. Disable isolation only when the local model and provider can safely handle the configured MCP tool schemas.
+
+## Design Rule
+
+Consiglio must not become a toy abstraction over Codex. Every visual action should map to an inspectable task event, command, file operation, provider setting, or protocol message. Errors remain selectable and copyable so failures can be debugged from evidence rather than hidden behind generic UI states.
 
 ## License
 
-Copyright 2026 Rick. Licensed under the [Apache License 2.0](LICENSE).
+Copyright 2026 Rick Goldberg and Aniviza LLC.
+
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution information.
