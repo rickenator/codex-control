@@ -11,6 +11,7 @@ import { ipcMain } from 'electron';
 import { isTrustedRendererUrl } from '../app-protocol';
 import { detectAgentReadiness } from '../agent-readiness';
 import type { AgentAdapter, EventEmitters } from '../agent-adapter';
+import { resolveCodexCommand } from '../platform';
 import { CodexAdapter } from './codex-adapter';
 import { OpenInterpreterAdapter } from './open-interpreter-adapter';
 import { AiderAdapter } from './aider-adapter';
@@ -26,7 +27,16 @@ function registerAgentReadinessHandler(): void {
     if (!isMainFrame || !isTrustedRendererUrl(senderUrl)) {
       throw new Error('Rejected agent readiness request from an untrusted renderer');
     }
-    return detectAgentReadiness();
+
+    return detectAgentReadiness({
+      commandResolver: (agentId, env) => {
+        if (agentId !== 'codex') return null;
+        const command = resolveCodexCommand({ env });
+        return command
+          ? { command: command.executable, prefixArgs: command.prefixArgs }
+          : null;
+      },
+    });
   });
 }
 
