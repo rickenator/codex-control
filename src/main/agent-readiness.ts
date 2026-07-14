@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
 
-import { resolveCodexCommand } from './platform';
-
 export type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 export type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
 export type AgentReadinessState = 'ready' | 'configuration-required' | 'missing' | 'timeout' | 'error';
@@ -36,12 +34,22 @@ export interface CommandProbeResult {
   timedOut: boolean;
 }
 
+export interface ResolvedProbeCommand {
+  command: string;
+  prefixArgs: string[];
+}
+
 export type CommandRunner = (request: CommandProbeRequest) => Promise<CommandProbeResult>;
+export type AgentCommandResolver = (
+  agentId: AgentId,
+  env: NodeJS.ProcessEnv,
+) => ResolvedProbeCommand | null;
 
 export interface AgentReadinessOptions {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   runner?: CommandRunner;
+  commandResolver?: AgentCommandResolver;
   now?: () => number;
 }
 
@@ -54,11 +62,6 @@ interface AgentSpec {
   supportTier: AgentSupportTier;
   installDiagnostic: string;
   authentication: 'codex' | 'not-required' | 'unknown';
-}
-
-interface ResolvedProbeCommand {
-  command: string;
-  prefixArgs: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 4_000;
@@ -177,11 +180,13 @@ function firstLine(value: string): string | undefined {
   return value.split(/\r?\n/).map(line => line.trim()).find(Boolean);
 }
 
-function resolvedCommand(spec: AgentSpec, env: NodeJS.ProcessEnv, useNativeResolution: boolean): ResolvedProbeCommand {
-  if (spec.id === 'codex' && useNativeResolution) {
-    const command = resolveCodexCommand({ env });
-    if (command) return { command: command.executable, prefixArgs: command.prefixArgs };
-  }
+function resolvedCommand(
+  spec: AgentSpec,
+  env: NodeJS.ProcessEnv,
+  commandResolver?: AgentCommandResolver,
+): ResolvedProbeCommand {
+  const hostResolved = commandResolver?.(spec.id, env);
+  if (hostResolved) return hostResolved;
 
   return {
     command: env[spec.commandEnv]?.trim() || spec.command,
@@ -216,9 +221,9 @@ async function detectOne(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   checkedAt: number,
-  useNativeResolution: boolean,
+  commandResolver?: AgentCommandResolver,
 ): Promise<AgentReadiness> {
-  const command = resolvedCommand(spec, env, useNativeResolution);
+  const command = resolvedCommand(spec, env, commandResolver);
   let versionResult: CommandProbeResult;
 
   try {
@@ -345,7 +350,6 @@ export async function detectAgentReadiness(options: AgentReadinessOptions = {}):
   const env = options.env || process.env;
   const timeoutMs = Math.max(100, options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const checkedAt = (options.now || Date.now)();
-  const useNativeResolution = runner === runCommandProbe;
 
   return Promise.all(AGENT_SPECS.map(spec => detectOne(
     spec,
@@ -353,6 +357,6 @@ export async function detectAgentReadiness(options: AgentReadinessOptions = {}):
     env,
     timeoutMs,
     checkedAt,
-    useNativeResolution,
+    options.commandResolver,
   )));
 }
