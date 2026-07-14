@@ -31,7 +31,7 @@ Version: $version
 Section: devel
 Priority: optional
 Architecture: $architecture
-Maintainer: Rick Goldberg and Aniviza LLC
+Maintainer: Rick Goldberg, Aniviza LLC Productions
 Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0
 Recommends: libappindicator3-1
 Description: Desktop control plane for Codex CLI

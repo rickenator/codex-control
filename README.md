@@ -1,19 +1,38 @@
 <div align="center">
   <img src="build/icons/128x128.png" width="96" height="96" alt="Consiglio icon">
   <h1>Consiglio</h1>
-  <p><strong>A focused desktop workspace for persistent Codex tasks.</strong></p>
-  <p>Start typing immediately. Keep the conversation, files, provider, and Codex thread when the app restarts.</p>
+  <p><strong>The desktop workspace for Codex tasks that outlive the terminal.</strong></p>
+  <p>Start typing immediately. Consiglio keeps your conversations, files, providers, drafts, and Codex threads ready after restarts and crashes.</p>
   <p>
     <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-5ca8ff?style=flat-square">
     <img alt="Electron" src="https://img.shields.io/badge/shell-Electron-9de4f2?style=flat-square">
     <img alt="React" src="https://img.shields.io/badge/UI-React-61dafb?style=flat-square">
-    <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-f5c542?style=flat-square">
+    <img alt="Platforms: Linux, Windows, macOS" src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-f5c542?style=flat-square">
+    <a href="https://github.com/rickenator/Consiglio/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rickenator/Consiglio?style=flat-square&color=5ca8ff"></a>
+  </p>
+  <p>
+    <a href="https://github.com/rickenator/Consiglio/releases/latest"><strong>Download Consiglio</strong></a>
+    &nbsp;&middot;&nbsp;
+    <a href="#start-here">Install from source</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/rickenator/Consiglio/issues">Report an issue</a>
   </p>
 </div>
 
 ---
 
 Consiglio wraps the Codex CLI in a native desktop workflow. It is designed for long-running work rather than disposable chats: tasks reconnect automatically, prompts and responses remain copyable, activity is visible, and repository files can be inspected without leaving the conversation.
+
+## Why Consiglio
+
+Codex is powerful, but serious work rarely fits into one terminal session. Consiglio adds the durable desktop layer: one place to resume tasks, see what the agent is doing, inspect its files, manage providers and credentials, and recover after a shutdown without reconstructing context.
+
+- **No workspace gate.** Open the app and type; the last task reconnects automatically.
+- **No mystery waiting.** Streaming activity, commands, errors, and working state remain visible.
+- **No lost thread.** Conversations, drafts, repository state, and Codex thread IDs survive restarts.
+- **No terminal juggling.** Tasks, file previews, images, providers, approvals, and secrets share one focused window.
+
+> Consiglio is an independent open-source desktop client. It requires a working Codex CLI installation and uses your existing Codex authentication and configuration.
 
 ## What It Does
 
@@ -29,14 +48,26 @@ Consiglio wraps the Codex CLI in a native desktop workflow. It is designed for l
 
 ## Start Here
 
+### Download
+
+Install the latest release from the [Consiglio download page](https://github.com/rickenator/Consiglio/releases/latest):
+
+| Platform | Recommended package | Alternative |
+| --- | --- | --- |
+| Linux x64 | `.deb` for Debian and Ubuntu | AppImage for other distributions |
+| Windows x64 | Setup `.exe` | Portable `.exe` |
+| macOS Intel | `.dmg` | `.zip` |
+
+Linux is the primary and most thoroughly exercised platform. The current macOS build targets Intel Macs.
+
 ### Requirements
 
-- Linux desktop environment
-- Node.js 20 or newer
-- npm
 - A working `codex` executable on `PATH`
+- A supported 64-bit desktop platform
 
-### Install
+Node.js 20 or newer and npm are required only when installing from source.
+
+### Install From Source
 
 ```bash
 git clone https://github.com/rickenator/Consiglio.git
@@ -233,6 +264,6 @@ Consiglio must not become a toy abstraction over Codex. Every visual action shou
 
 ## License
 
-Copyright 2026 Rick Goldberg and Aniviza LLC.
+Copyright 2026 Rick Goldberg, Aniviza LLC Productions.
 
 Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution information.
