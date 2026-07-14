@@ -105,7 +105,7 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Upload Android debug APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Consiglio-android-debug-${{ github.sha }}
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
@@ -150,7 +150,7 @@ jobs:
         run: test -d mobile/ios/App/build/DerivedData/Build/Products/Debug-iphonesimulator/App.app
 
       - name: Upload iOS simulator application
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Consiglio-ios-simulator-${{ github.sha }}
           path: mobile/ios/App/build/DerivedData/Build/Products/Debug-iphonesimulator/App.app
@@ -203,7 +203,7 @@ jobs:
         run: npm run validate:package
 
       - name: Upload packages
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}-${{ github.sha }}
           path: |
