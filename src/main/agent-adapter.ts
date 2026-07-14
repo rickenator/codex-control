@@ -122,12 +122,35 @@ export interface AgentAdapter {
    * Some agents (like Codex) have thread IDs that survive restarts.
    */
   reconnectSession(sessionId: string): Promise<boolean>;
+}
+
+// ─── Agent Detection ──────────────────────────────────────────────────────────
+
+/**
+ * Detect which agents are available on this system.
+ * Used for health checks and startup validation.
+ * Each adapter implements its own detection logic.
+ */
+export function detectAgents(emitters: EventEmitters): AgentInfo[] {
+  const results: AgentInfo[] = [];
   
-  /**
-   * Detect which agents are available on this system.
-   * Used for health checks and startup validation.
-   */
-  static detectAvailable(): AgentInfo[];
+  // Codex detection
+  try {
+    const codexAdapter = new (require('./adapters/codex-adapter').CodexAdapter)(emitters);
+    results.push(...(codexAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'codex', name: 'Codex CLI', installed: false, authenticated: false });
+  }
+  
+  // Open Interpreter detection (stub)
+  try {
+    const oiAdapter = new (require('./adapters/open-interpreter-adapter').OpenInterpreterAdapter)(emitters);
+    results.push(...(oiAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'open-interpreter', name: 'Open Interpreter', installed: false, authenticated: false });
+  }
+  
+  return results;
 }
 
 // ─── Event Emitter Helper ─────────────────────────────────────────────────────

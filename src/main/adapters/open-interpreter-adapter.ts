@@ -17,8 +17,29 @@ import type {
 } from '../agent-adapter';
 import pty from 'node-pty';
 
+// Stub type for OI session state (full implementation in Phase 3)
+interface OISessionState {
+  id: string;
+  pty: import('node-pty').IPty | null;
+  repository: string;
+  branch: string;
+  model?: string;
+  jsonRemainder?: string;
+  activePrompt?: string;
+}
+
 export class OpenInterpreterAdapter implements AgentAdapter {
-  static sessions = new Map<string, SessionState>();
+  static sessions = new Map<string, OISessionState>();
+
+  detectAvailable(): import('../agent-adapter').AgentInfo[] {
+    // Check if 'interpreter' is on PATH
+    try {
+      require('child_process').execSync('interpreter --version', { stdio: 'ignore' });
+      return [{ id: 'open-interpreter', name: 'Open Interpreter', installed: true, authenticated: false }];
+    } catch {
+      return [{ id: 'open-interpreter', name: 'Open Interpreter', installed: false, authenticated: false }];
+    }
+  }
 
   constructor(
     private emitters: {

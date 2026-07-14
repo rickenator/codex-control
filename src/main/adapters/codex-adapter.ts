@@ -42,6 +42,28 @@ interface LanProvider {
   apiKey: string;
 }
 
+type SessionStatus = 'running' | 'stopped' | 'failed' | 'completed';
+
+interface SessionState {
+  id: string;
+  pty: IPty | null;
+  repository: string;
+  branch: string;
+  provider: Provider;
+  status: SessionStatus;
+  terminalBuffer: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  codexCommand: ExecutableCommand;
+  codexThreadId?: string;
+  jsonRemainder: string;
+  lastStructuredError?: string;
+  processedItemIds: Set<string>;
+  activePrompt?: string;
+  retryFreshAfterExit: boolean;
+  protocolRetryUsed: boolean;
+}
+
 // ─── CodexAdapter Implementation ──────────────────────────────────────────────
 
 export class CodexAdapter implements AgentAdapter {
@@ -56,9 +78,9 @@ export class CodexAdapter implements AgentAdapter {
     }
   ) {}
 
-  // ─── Static Detection ──────────────────────────────────────────────────────
+  // ─── Detection ───────────────────────────────────────────────────────────────
 
-  static detectAvailable(): AgentInfo[] {
+  detectAvailable(): AgentInfo[] {
     const codex = codexReadiness();
     return [{
       id: 'codex',

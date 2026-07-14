@@ -5,13 +5,13 @@
  * This keeps main.ts clean and makes it easy to add new agents.
  */
 
-import type { AgentAdapter } from '../agent-adapter';
+import type { AgentAdapter, AgentEvent, AgentApproval, EventEmitters } from '../agent-adapter';
 import { CodexAdapter } from './codex-adapter';
 import { OpenInterpreterAdapter } from './open-interpreter-adapter';
 
 export function getAdapter(
   agent: 'codex' | 'open-interpreter' | 'aider' | 'claude-code',
-  emitters: NonNullable<Parameters<CodexAdapter>['0']>
+  emitters: EventEmitters
 ): AgentAdapter {
   switch (agent) {
     case 'codex':
