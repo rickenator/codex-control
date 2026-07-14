@@ -177,8 +177,12 @@ textarea:focus-visible {
   display: flex;
   flex: 1;
   min-height: 0;
-  gap: 0;
+  gap: 8px;
   padding: 8px;
+}
+
+.codex-shell-grid > .codex-panel {
+  margin: 0;
 }
 
 .codex-sidebar {
@@ -193,9 +197,10 @@ textarea:focus-visible {
 }
 
 .codex-simple-sidebar {
-  width: 248px;
-  min-width: 216px;
-  border-right: 0;
+  width: clamp(248px, 15vw, 292px);
+  min-width: 232px;
+  border-right: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 
 .codex-sidebar-top {
@@ -648,14 +653,15 @@ textarea:focus-visible {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  border-radius: var(--radius-lg);
   background: #171717;
   border: 1px solid var(--border);
   overflow: hidden;
 }
 
 .codex-panel-header {
-  padding: 8px 12px;
+  min-height: 52px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -937,7 +943,7 @@ textarea:focus-visible {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 24px clamp(18px, 6vw, 88px);
+  padding: 30px clamp(20px, 4vw, 72px);
   scrollbar-color: rgba(201, 209, 217, 0.48) #171717;
   scrollbar-width: auto;
 }
@@ -961,8 +967,8 @@ textarea:focus-visible {
 }
 
 .codex-message {
-  max-width: 900px;
-  margin: 0 auto 20px;
+  width: min(1120px, 100%);
+  margin: 0 auto 24px;
 }
 
 .codex-message-meta {
@@ -991,8 +997,8 @@ textarea:focus-visible {
 
 .codex-message-content {
   color: var(--text);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
@@ -1039,7 +1045,7 @@ textarea:focus-visible {
 }
 
 .codex-thinking {
-  max-width: 900px;
+  width: min(1120px, 100%);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1050,20 +1056,122 @@ textarea:focus-visible {
 }
 
 .codex-composer-wrap {
-  padding: 12px clamp(18px, 6vw, 88px) 14px;
+  padding: 14px clamp(20px, 4vw, 72px) 16px;
   border-top: 1px solid var(--border);
   background: #141414;
 }
 
 .codex-composer {
   display: flex;
-  max-width: 900px;
+  align-items: flex-end;
+  width: min(1120px, 100%);
   margin: 0 auto;
   gap: 8px;
   padding: 6px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: #202020;
+}
+
+.codex-attach-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  margin: 3px 0 3px 3px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-strong);
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.codex-attach-button:hover:not(:disabled) {
+  border-color: rgba(88, 166, 255, 0.45);
+  background: rgba(88, 166, 255, 0.11);
+  color: var(--blue);
+}
+
+.codex-attach-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.codex-attachment-tray {
+  width: min(1120px, 100%);
+  display: flex;
+  gap: 7px;
+  margin: 0 auto 8px;
+  overflow-x: auto;
+  padding: 1px 1px 3px;
+}
+
+.codex-attachment-chip {
+  min-width: 0;
+  max-width: 340px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.codex-attachment-kind {
+  color: var(--blue);
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.codex-attachment-kind.is-pdf {
+  color: #ff7b72;
+}
+
+.codex-attachment-kind.is-image {
+  color: var(--green);
+}
+
+.codex-attachment-name {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-attachment-size {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.codex-attachment-chip button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.codex-attachment-chip button:hover {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--red);
 }
 
 .codex-composer .codex-input,
@@ -1087,7 +1195,7 @@ textarea:focus-visible {
 }
 
 .codex-composer-hint {
-  max-width: 900px;
+  width: min(1120px, 100%);
   display: flex;
   justify-content: space-between;
   margin: 6px auto 0;
@@ -1096,7 +1204,7 @@ textarea:focus-visible {
 }
 
 .codex-files-pane {
-  width: 320px;
+  width: clamp(320px, 24vw, 440px);
   min-width: 250px;
   display: flex;
   flex-direction: column;
@@ -1346,14 +1454,33 @@ textarea:focus-visible {
   }
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 900px) {
   .codex-shell-grid {
     flex-direction: column;
   }
 
   .codex-sidebar {
     width: 100%;
+    min-width: 0;
     max-height: 260px;
+  }
+}
+
+@media (min-width: 1800px) {
+  .codex-message-scroll {
+    padding-top: 38px;
+  }
+
+  .codex-message,
+  .codex-thinking,
+  .codex-composer,
+  .codex-composer-hint,
+  .codex-attachment-tray {
+    width: min(1180px, 100%);
+  }
+
+  .codex-message-content {
+    font-size: 15.5px;
   }
 }
 

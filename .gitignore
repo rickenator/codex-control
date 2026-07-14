@@ -22,6 +22,9 @@ Thumbs.db
 .env
 .env.local
 
+# Task-local Consiglio document attachments
+.consiglio/
+
 # Electron packaging
 *.dmg
 *.AppImage

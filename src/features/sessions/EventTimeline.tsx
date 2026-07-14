@@ -34,6 +34,7 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   const [isSending, setIsSending] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +43,11 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
       return;
     }
     setInput(window.localStorage.getItem(`consiglio:draft:${sessionId}`) || '');
+    try {
+      setAttachments(JSON.parse(window.localStorage.getItem(`consiglio:attachments:${sessionId}`) || '[]') as TaskAttachment[]);
+    } catch {
+      setAttachments([]);
+    }
   }, [sessionId]);
 
   useEffect(() => {
@@ -50,6 +56,13 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
     if (input) window.localStorage.setItem(key, input);
     else window.localStorage.removeItem(key);
   }, [input, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const key = `consiglio:attachments:${sessionId}`;
+    if (attachments.length > 0) window.localStorage.setItem(key, JSON.stringify(attachments));
+    else window.localStorage.removeItem(key);
+  }, [attachments, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -114,13 +127,18 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   };
 
   const handleSend = async (override?: string) => {
-    const promptText = (override ?? input).trim();
+    const selectedAttachments = override ? [] : attachments;
+    const promptText = (override ?? input).trim() || (selectedAttachments.length > 0 ? 'Review the attached files.' : '');
     if (!promptText || !sessionId || isSending || isAwaitingResponse) return;
+    const attachmentContext = selectedAttachments.length > 0
+      ? `\n\nAttached files available in this task workspace:\n${selectedAttachments.map(attachment => `- ${attachment.path}`).join('\n')}`
+      : '';
+    const submittedPrompt = `${promptText}${attachmentContext}`;
 
     const optimisticEvent: Event = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: 'prompt',
-      content: promptText,
+      content: submittedPrompt,
       timestamp: Date.now(),
       session_id: sessionId,
     };
@@ -130,14 +148,15 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
     setEvents(prev => [...prev, optimisticEvent]);
     setInput('');
     try {
-      let sent = await window.codexApi.sendInput(sessionId, promptText);
+      let sent = await window.codexApi.sendInput(sessionId, submittedPrompt);
       if (!sent) {
         const reconnected = await window.codexApi.reconnectSession(sessionId);
         if (reconnected) {
-          sent = await window.codexApi.sendInput(sessionId, promptText);
+          sent = await window.codexApi.sendInput(sessionId, submittedPrompt);
         }
       }
       if (!sent) throw new Error('Could not reconnect this task. Start a new task and try again.');
+      if (!override) setAttachments([]);
     } catch (e) {
       setEvents(prev => prev.filter(event => event.id !== optimisticEvent.id));
       setInput(promptText);
@@ -145,6 +164,18 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
       onError?.(`Could not send input: ${(e as Error).message}`);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleAddAttachments = async () => {
+    if (!sessionId || isSending || isAwaitingResponse) return;
+    try {
+      const added = await window.codexApi.addSessionAttachments(sessionId);
+      if (added.length > 0) {
+        setAttachments(current => [...current, ...added]);
+      }
+    } catch (error) {
+      onError?.(`Could not add documents: ${(error as Error).message}`);
     }
   };
 
@@ -254,12 +285,34 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
 
       {/* Input area */}
       <div className="codex-composer-wrap">
+        {attachments.length > 0 && (
+          <div className="codex-attachment-tray" aria-label="Attached documents">
+            {attachments.map((attachment, index) => (
+              <div className="codex-attachment-chip" key={`${attachment.path}-${index}`} title={attachment.path}>
+                <span className={`codex-attachment-kind is-${attachment.kind}`}>{attachmentLabel(attachment.kind)}</span>
+                <span className="codex-attachment-name">{attachment.name}</span>
+                <span className="codex-attachment-size">{formatFileSize(attachment.size)}</span>
+                <button type="button" onClick={() => setAttachments(current => current.filter((_, candidateIndex) => candidateIndex !== index))} aria-label={`Remove ${attachment.name}`}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="codex-composer">
+          <button
+            type="button"
+            className="codex-attach-button"
+            onClick={() => void handleAddAttachments()}
+            disabled={isSending || isAwaitingResponse}
+            title="Add documents or images"
+            aria-label="Add documents or images"
+          >
+            +
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Codex to work on this repository"
+            placeholder="Ask Codex, paste a URL, or add documents"
             disabled={isSending || isAwaitingResponse}
             className="codex-textarea"
             rows={2}
@@ -267,18 +320,31 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
           <button
             className="codex-button codex-button-primary"
             onClick={() => void handleSend()}
-            disabled={isSending || isAwaitingResponse || !input.trim()}
+            disabled={isSending || isAwaitingResponse || (!input.trim() && attachments.length === 0)}
           >
             {isSending || isAwaitingResponse ? <span className="codex-spinner" aria-hidden="true" /> : 'Send'}
           </button>
         </div>
         <div className="codex-composer-hint">
-          <span>{isAwaitingResponse && !isSending ? 'Response in progress' : 'Enter to send'}</span>
-          <span>Shift+Enter for a new line</span>
+          <span>{isAwaitingResponse && !isSending ? 'Response in progress' : 'Add files with + or paste a URL'}</span>
+          <span>Enter to send · Shift+Enter for a new line</span>
         </div>
       </div>
     </main>
   );
+}
+
+function attachmentLabel(kind: TaskAttachment['kind']) {
+  if (kind === 'image') return 'IMG';
+  if (kind === 'pdf') return 'PDF';
+  if (kind === 'text') return 'TEXT';
+  return 'FILE';
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function InlineFileGallery({ sessionId, content }: { sessionId: string; content: string }) {

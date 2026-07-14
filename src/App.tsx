@@ -585,41 +585,6 @@ export default function App() {
         </section>
       )}
 
-      {/* Page Header */}
-      <header className="codex-page-header">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 13, letterSpacing: 0.2, color: '#8b949e' }}>Consiglio</div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: '#f0f6fc' }}>
-            {activeSession?.repository || 'No session selected'}
-          </div>
-          <div style={{ fontSize: 12, color: '#8b949e' }}>
-            {activeSession
-              ? `${activeSession.branch || 'detached'} · ${activeSession.status}`
-            : 'Start or select a session to continue'}
-          </div>
-        </div>
-        <button
-          className="codex-button codex-button-secondary"
-          onClick={() => setShowSettings(true)}
-          style={{ fontSize: 11, padding: "4px 10px", marginLeft: 8 }}
-          title="Launch settings"
-        >
-          ⚙ Settings
-        </button>
-        <div className="codex-chip-list">
-          <Pill label="Provider" value={settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp' : settings.defaultProvider === 'ollama' ? 'Ollama' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6' : settings.defaultProvider === 'lan' ? 'LAN' : 'Default Codex'} />
-          <Pill label="Model" value={activeSession?.model || getActiveModelLabel(settings)} />
-          <Pill label="Endpoint" value={getActiveEndpointLabel(settings)} />
-          {pendingApprovalCount > 0 && (
-            <div className="codex-chip" style={{ borderColor: '#d2992266', background: 'rgba(210, 153, 34, 0.1)' }}>
-              <span className="codex-chip-label">⏳</span>
-              <span className="codex-chip-value" style={{ color: '#d29922', fontWeight: 700 }}>{pendingApprovalCount}</span>
-            </div>
-          )}
-          {activeSession?.status && <Pill label="Session" value={activeSession.status} />}
-        </div>
-      </header>
-
       {/* Settings Panel */}
       {showSettings && (
         <section className="codex-panel" style={{ margin: '0 14px 14px', flex: '0 0 auto' }}>
@@ -878,6 +843,13 @@ export default function App() {
                 Providers
               </button>
               <button
+                className={`codex-button ${showSettings ? 'codex-button-info' : 'codex-button-secondary'}`}
+                onClick={() => setShowSettings((current) => !current)}
+                title="Task behavior settings"
+              >
+                Settings
+              </button>
+              <button
                 className="codex-button codex-button-secondary"
                 onClick={() => setShowSecrets(true)}
                 title="API keys and MCP credentials"
@@ -913,79 +885,6 @@ export default function App() {
         </section>
       </div>
 
-      {/* Footer */}
-      <footer className="codex-footer" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <span style={{ color: '#f0f6fc', fontWeight: 600 }}>
-            {activeSession?.repository ? sessionLabel(activeSession.repository) : 'No session selected'}
-          </span>
-          <span>
-            {activeSession
-              ? `${activeSession.branch || 'detached'} · ${activeSession.status}`
-              : 'Pick a session or start a workspace to continue'}
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right', marginLeft: 'auto' }}>
-          <span>{sessions.length} session{sessions.length === 1 ? '' : 's'} tracked</span>
-          <span>{pendingApprovalCount} approval{pendingApprovalCount === 1 ? '' : 's'} pending</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'right' }}>
-          <span>{settings.defaultProvider === 'remote_llamacpp' ? 'Remote llama.cpp profile active' : settings.defaultProvider === 'gpt56' ? 'GPT-5.6 profile active' : settings.defaultProvider === 'ollama' ? 'Ollama profile active' : settings.defaultProvider === 'lan' ? 'LAN provider active' : 'Default Codex profile active'}</span>
-          <span>Ctrl/Cmd+N new session · Ctrl/Cmd+L search</span>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {settings.lanProviders.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-              {settings.lanProviders.map(p => (
-                <div key={p.id} className="codex-chip" style={{ padding: '4px 8px', fontSize: 10 }}>
-                  <span className="codex-chip-label">{p.name}</span>
-                  <span className="codex-chip-value">{p.host}:{p.port}</span>
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => {
-                      setLanForm({ id: p.id, name: p.name, host: p.host, port: String(p.port), model: p.model, apiKey: p.apiKey });
-                      setShowLanSettings(true);
-                    }}
-                    style={{ padding: '2px 6px', fontSize: 10, marginLeft: 4 }}
-                  >
-                    ✎
-                  </button>
-                  <button
-                    className="codex-button codex-button-secondary"
-                    onClick={() => {
-                      window.codexApi.lanRemoveProvider(p.id);
-                      setSettings({ ...settings, lanProviders: settings.lanProviders.filter(lp => lp.id !== p.id) });
-                      setNotice({ kind: 'info', message: 'Provider removed' });
-                    }}
-                    style={{ padding: '2px 6px', fontSize: 10, marginLeft: 2, color: '#f85149' }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            className="codex-button codex-button-secondary"
-            onClick={() => {
-              setLanForm({ id: '', name: '', host: '', port: '8081', model: '', apiKey: '' });
-              setShowLanSettings(true);
-            }}
-            style={{ fontSize: 11, padding: '4px 8px' }}
-          >
-            + Add Provider
-          </button>
-          <button
-            className="codex-button codex-button-secondary"
-            onClick={handleDiscoverLan}
-            disabled={discovering}
-            style={{ fontSize: 11, padding: '4px 8px', color: '#58a6ff' }}
-          >
-            {discovering ? 'Scanning...' : '🔍 Discover'}
-          </button>
-        </div>
-      </footer>
-
       {/* LAN Settings Modal */}
       <SecretsManager
         open={showSecrets}
@@ -1002,9 +901,18 @@ export default function App() {
             background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
             padding: 24, width: 480, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto',
           }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#f0f6fc' }}>
-              {lanForm.id ? 'Edit LAN Provider' : 'Add LAN Provider'}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, color: '#f0f6fc' }}>
+                {lanForm.id ? 'Edit LAN Provider' : 'Add LAN Provider'}
+              </h3>
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => void handleDiscoverLan()}
+                disabled={discovering}
+              >
+                {discovering ? 'Scanning…' : 'Discover LAN'}
+              </button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <input
                 type="text"
@@ -1091,52 +999,12 @@ export default function App() {
   );
 }
 
-function Pill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="codex-chip">
-      <span className="codex-chip-label">{label}</span>
-      <span className="codex-chip-value">{value}</span>
-    </div>
-  );
-}
-
 function sessionLabel(repository?: string) {
   const trimmed = repository?.trim() || '';
   if (!trimmed) return 'Untitled workspace';
   const segments = trimmed.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] || trimmed;
 }
-
-function getActiveModelLabel(settings: {
-  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
-  ollama: { model: string };
-  remoteLlamaCpp: { model: string };
-  lanProviders: Array<{ model: string }>;
-  defaultModel?: string;
-}) {
-  if (settings.defaultProvider === 'remote_llamacpp') return settings.remoteLlamaCpp.model || 'Not set';
-  if (settings.defaultProvider === 'ollama') return settings.ollama.model || 'Not set';
-  if (settings.defaultProvider === 'default') return settings.defaultModel || settings.remoteLlamaCpp.model || 'Not set';
-  if (settings.defaultProvider === 'gpt56') return 'gpt-5.6';
-  if (settings.defaultProvider === 'lan') return settings.lanProviders[0]?.model || 'Not set';
-  return 'Not set';
-}
-
-function getActiveEndpointLabel(settings: {
-  defaultProvider: 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
-  ollama: { baseUrl: string };
-  remoteLlamaCpp: { baseUrl: string };
-  lanProviders: Array<{ host: string; port: number }>;
-}) {
-  if (settings.defaultProvider === 'remote_llamacpp') return settings.remoteLlamaCpp.baseUrl || 'Not set';
-  if (settings.defaultProvider === 'ollama') return settings.ollama.baseUrl || 'Not set';
-  if (settings.defaultProvider === 'lan') {
-    const first = settings.lanProviders[0];
-    return first ? `${first.host}:${first.port}` : 'Not set';
-  }
-  return 'N/A';
-}
-
 
 function summarizeHealth(status: StartupStatus | null) {
   if (!status) return { message: 'Checking Consiglio releases, Codex CLI, and provider interfaces…', color: '#58a6ff', borderColor: 'rgba(88, 166, 255, 0.28)' };

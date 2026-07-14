@@ -44,6 +44,8 @@ try {
       ipcRenderer.invoke('workspace:list-files', { sessionId, path }),
     readWorkspaceFile: (sessionId: string, path: string) =>
       ipcRenderer.invoke('workspace:read-file', { sessionId, path }),
+    addSessionAttachments: (sessionId: string) =>
+      ipcRenderer.invoke('workspace:add-attachments', sessionId),
     resizeTerminal: (sessionId: string, cols: number, rows: number) =>
       ipcRenderer.invoke('session:resize', { sessionId, cols, rows }),
     reconnectSession: (sessionId: string) =>

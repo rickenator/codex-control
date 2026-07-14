@@ -76,6 +76,13 @@ interface SecretInput {
   enabled: boolean;
 }
 
+interface TaskAttachment {
+  name: string;
+  path: string;
+  size: number;
+  kind: 'image' | 'pdf' | 'text' | 'file';
+}
+
 
 interface HealthCheckItem {
   id: string;
@@ -127,6 +134,7 @@ interface CodexAPI {
   sendInput: (sessionId: string, input: string) => Promise<boolean>;
   listWorkspaceFiles: (sessionId: string, path?: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean; isImage: boolean }>>;
   readWorkspaceFile: (sessionId: string, path: string) => Promise<{ kind: 'image'; path: string; dataUrl: string } | { kind: 'text'; path: string; text: string }>;
+  addSessionAttachments: (sessionId: string) => Promise<TaskAttachment[]>;
   resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<boolean>;
   reconnectSession: (sessionId: string) => Promise<boolean>;
   getSettings: () => Promise<CodexSettings>;

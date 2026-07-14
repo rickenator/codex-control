@@ -1302,6 +1302,70 @@ function readWorkspaceFile(sessionId: string, candidatePath: string) {
   return { kind: 'text', path: relativePath, text: fs.readFileSync(resolved, 'utf8').slice(0, 1_000_000) };
 }
 
+async function addSessionAttachments(sessionId: string) {
+  const repository = sessions.get(sessionId)?.repository || records.get(sessionId)?.repository;
+  if (!repository) throw new Error('Task workspace is unavailable');
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: 'Add documents to this task',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Documents and images', extensions: ['pdf', 'md', 'markdown', 'txt', 'rtf', 'csv', 'json', 'yaml', 'yml', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled) return [];
+
+  const attachmentDirectory = path.join(repository, '.consiglio', 'attachments');
+  fs.mkdirSync(attachmentDirectory, { recursive: true });
+  excludeTaskAttachmentsFromGit(repository);
+  return result.filePaths.map(sourcePath => {
+    const stat = fs.statSync(sourcePath);
+    if (!stat.isFile()) throw new Error(`${path.basename(sourcePath)} is not a file.`);
+    if (stat.size > 100 * 1024 * 1024) throw new Error(`${path.basename(sourcePath)} is larger than the 100 MB attachment limit.`);
+    const originalName = path.basename(sourcePath).replace(/[\x00-\x1f]/g, '').trim() || 'attachment';
+    const extension = path.extname(originalName);
+    const stem = path.basename(originalName, extension);
+    let destination = path.join(attachmentDirectory, originalName);
+    let suffix = 2;
+    while (fs.existsSync(destination)) {
+      destination = path.join(attachmentDirectory, `${stem} ${suffix}${extension}`);
+      suffix += 1;
+    }
+    fs.copyFileSync(sourcePath, destination);
+    return {
+      name: path.basename(destination),
+      path: path.relative(repository, destination),
+      size: stat.size,
+      kind: attachmentKind(destination),
+    };
+  });
+}
+
+function excludeTaskAttachmentsFromGit(repository: string) {
+  try {
+    const gitPath = execFileSync('git', ['-C', repository, 'rev-parse', '--git-path', 'info/exclude'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const excludePath = path.isAbsolute(gitPath) ? gitPath : path.resolve(repository, gitPath);
+    const contents = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf8') : '';
+    if (!contents.split(/\r?\n/).includes('.consiglio/')) {
+      fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+      fs.appendFileSync(excludePath, `${contents.endsWith('\n') || contents.length === 0 ? '' : '\n'}.consiglio/\n`);
+    }
+  } catch {
+    // Non-git workspaces do not need a local exclude rule.
+  }
+}
+
+function attachmentKind(filePath: string) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (/^\.(png|jpe?g|gif|webp|bmp|svg)$/.test(extension)) return 'image';
+  if (extension === '.pdf') return 'pdf';
+  if (/^\.(md|markdown|txt|rtf|csv|json|ya?ml)$/.test(extension)) return 'text';
+  return 'file';
+}
+
 ipcMain.handle('session:start', (_event, options: SessionOptions) => startSession(options || {}));
 ipcMain.handle('session:stop', (_event, sessionId: string) => stopSession(sessionId));
 ipcMain.handle('session:delete', (_event, sessionId: string) => deleteSession(sessionId));
@@ -1317,6 +1381,7 @@ ipcMain.handle('workspace:list-files', (_event, { sessionId, path: relativePath 
 ipcMain.handle('workspace:read-file', (_event, { sessionId, path: filePath }: { sessionId: string; path: string }) => {
   return readWorkspaceFile(sessionId, filePath);
 });
+ipcMain.handle('workspace:add-attachments', (_event, sessionId: string) => addSessionAttachments(sessionId));
 ipcMain.handle('session:resize', (_event, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
   const state = sessions.get(sessionId);
   if (!state) return false;
