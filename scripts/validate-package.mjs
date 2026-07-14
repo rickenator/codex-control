@@ -126,7 +126,9 @@ function validateMac() {
   const contents = requireDirectory(path.join(application, 'Contents'));
   const plist = requireFile(path.join(contents, 'Info.plist'));
   const executableName = plistValue(plist, 'CFBundleExecutable');
-  const executable = requireFile(path.join(contents, 'MacOS', executableName), 1_000_000);
+  // Electron's macOS launcher is intentionally a small Mach-O stub; lipo below
+  // provides the meaningful binary-format and architecture validation.
+  const executable = requireFile(path.join(contents, 'MacOS', executableName), 10_000);
   const resources = requireDirectory(path.join(contents, 'Resources'));
   requireFile(path.join(resources, 'app.asar'), 1_000);
 
