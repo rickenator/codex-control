@@ -118,8 +118,11 @@ function captureResponseEvent(state: DiscussionState, event: AgentEvent): void {
 
 export class DiscussionSession {
   private running = false;
+  private state: DiscussionState;
 
-  private constructor(private state: DiscussionState) {}
+  private constructor(state: DiscussionState) {
+    this.state = state;
+  }
 
   static async create(
     options: DiscussionOptions,
