@@ -2096,12 +2096,27 @@ handleIpc('session:reconnect', (_event, sessionId: string) => reconnectSession(s
 // ─── Discussion IPC Handlers ──────────────────────────────────────────────────
 
 handleIpc('discussion:start', async (_event, options: import('@/main/discussion-session').DiscussionOptions) => {
-  const discussion = await DiscussionSession.create(options);
-  discussionSessions.set(discussion['state'].sessionId, discussion);
+  const sessionId = `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  
+  // Create emitters that send IPC events to the renderer
+  const emitters: import('@/main/discussion-session').DiscussionEmitters = {
+    emitMessage: (message) => {
+      mainWindow?.webContents.send('discussion:message', { sessionId, message });
+    },
+    emitEvent: (event) => {
+      mainWindow?.webContents.send('discussion:event', { sessionId, event });
+    },
+    emitError: (error) => {
+      mainWindow?.webContents.send('discussion:error', { sessionId, error });
+    },
+  };
+  
+  const discussion = await DiscussionSession.create(options, emitters);
+  discussionSessions.set(sessionId, discussion);
   
   // Return initial state
   return {
-    sessionId: discussion['state'].sessionId,
+    sessionId,
     agents: options.agents.map((a: { id: string }) => a.id),
     history: [],
   };

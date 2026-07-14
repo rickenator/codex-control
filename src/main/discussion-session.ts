@@ -49,8 +49,8 @@ export interface DiscussionOptions {
 interface DiscussionState {
   sessionId: string;
   messages: DiscussionMessage[];
-  agents: Map<string, AgentSession>;  // agentId → session handle
-  adapters: Map<string, AgentAdapter>; // agentId → adapter instance
+  agents: Map<string, AgentSession>;
+  adapters: Map<string, AgentAdapter>;
   emitters: DiscussionEmitters;
   currentTurn: number;
   maxTurns: number;
@@ -58,7 +58,9 @@ interface DiscussionState {
   synthesisAgent?: 'codex' | 'open-interpreter';
   repository: string;
   branch?: string;
-  activeAgentIndex: number;  // for round-robin
+  activeAgentIndex: number;
+  pendingResponses: Map<string, string>;
+  isProcessing: Map<string, boolean>;
 }
 
 /** Event emitters for discussion sessions */
@@ -66,6 +68,36 @@ export interface DiscussionEmitters {
   emitMessage(message: DiscussionMessage): void;
   emitEvent(event: AgentEvent): void;
   emitError(error: string): void;
+}
+
+/**
+ * Helper to create emitters that also accumulate agent responses.
+ */
+function createResponseCapturingEmitters(
+  state: DiscussionState,
+  baseEmitters: DiscussionEmitters
+): DiscussionEmitters {
+  return {
+    emitMessage: (message) => {
+      baseEmitters.emitMessage(message);
+    },
+    emitEvent: (event) => {
+      // Accumulate response content for the current agent
+      if (event.type === 'response' && event.session_id) {
+        for (const [agentId, session] of state.agents) {
+          if (session.sessionId === event.session_id) {
+            const current = state.pendingResponses.get(agentId) || '';
+            state.pendingResponses.set(agentId, current + event.content);
+            break;
+          }
+        }
+      }
+      baseEmitters.emitEvent(event);
+    },
+    emitError: (error) => {
+      baseEmitters.emitError(error);
+    },
+  };
 }
 
 // ─── DiscussionSession Class ──────────────────────────────────────────────────
@@ -80,13 +112,11 @@ export class DiscussionSession {
 
   // ─── Factory ──────────────────────────────────────────────────────────────
 
-  static async create(options: DiscussionOptions): Promise<DiscussionSession> {
+  static async create(options: DiscussionOptions, emitters?: DiscussionEmitters): Promise<DiscussionSession> {
     const sessionId = `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     
-    // Create emitters that bridge to main.ts event system
-    const emitters: DiscussionEmitters = {
+    const baseEmitters: DiscussionEmitters = emitters || {
       emitMessage: (message) => {
-        // This will be wired to IPC in main.ts
         console.log(`[Discussion ${sessionId}] ${message.role}: ${message.content.slice(0, 100)}...`);
       },
       emitEvent: (event) => {
@@ -97,12 +127,11 @@ export class DiscussionSession {
       },
     };
 
-    // Create agent sessions
     const agents = new Map<string, AgentSession>();
     const adapters = new Map<string, AgentAdapter>();
 
     for (const agentConfig of options.agents) {
-      const adapter = getAdapter(agentConfig.id, emitters as any);
+      const adapter = getAdapter(agentConfig.id, baseEmitters as any);
       adapters.set(agentConfig.id, adapter);
 
       const session = await adapter.launch({
@@ -116,12 +145,11 @@ export class DiscussionSession {
       agents.set(agentConfig.id, session);
     }
 
-    const state: DiscussionState = {
+    const initialState: Omit<DiscussionState, 'emitters'> = {
       sessionId,
       messages: [],
       agents,
       adapters,
-      emitters,
       currentTurn: 0,
       maxTurns: options.maxTurns || 10,
       moderatorStrategy: options.moderatorStrategy || 'round-robin',
@@ -129,6 +157,18 @@ export class DiscussionSession {
       repository: options.repository,
       branch: options.branch,
       activeAgentIndex: 0,
+      pendingResponses: new Map(),
+      isProcessing: new Map(),
+    };
+
+    const capturingEmitters = createResponseCapturingEmitters(
+      initialState as DiscussionState,
+      baseEmitters
+    );
+
+    const state: DiscussionState = {
+      ...initialState,
+      emitters: capturingEmitters,
     };
 
     return new DiscussionSession(state);
@@ -136,13 +176,11 @@ export class DiscussionSession {
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
-  /** Send a user message to start/continue the discussion */
   async sendMessage(content: string): Promise<DiscussionMessage[]> {
     if (!this.running) {
       this.running = true;
       await this.runDiscussion(content);
     } else {
-      // Add user message to history
       const userMsg: DiscussionMessage = {
         id: `msg_${Date.now()}`,
         role: 'user',
@@ -151,20 +189,16 @@ export class DiscussionSession {
       };
       this.state.messages.push(userMsg);
       this.state.emitters.emitMessage(userMsg);
-      
-      // Continue discussion from current agent
       await this.continueDiscussion();
     }
     
     return [...this.state.messages];
   }
 
-  /** Get the full discussion history */
   getHistory(): DiscussionMessage[] {
     return [...this.state.messages];
   }
 
-  /** Stop all agents and clean up */
   async stop(): Promise<void> {
     this.running = false;
     
@@ -176,7 +210,6 @@ export class DiscussionSession {
     }
   }
 
-  /** Check if discussion is still running */
   isRunning(): boolean {
     return this.running;
   }
@@ -184,7 +217,6 @@ export class DiscussionSession {
   // ─── Discussion Orchestration ─────────────────────────────────────────────
 
   private async runDiscussion(initialPrompt: string): Promise<void> {
-    // Add initial user message
     const userMsg: DiscussionMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
@@ -194,7 +226,6 @@ export class DiscussionSession {
     this.state.messages.push(userMsg);
     this.state.emitters.emitMessage(userMsg);
 
-    // Run turns until max reached or discussion naturally ends
     while (this.running && this.state.currentTurn < this.state.maxTurns) {
       const agentId = this.selectNextAgent();
       if (!agentId) break;
@@ -207,19 +238,19 @@ export class DiscussionSession {
         continue;
       }
 
-      // Build context for the agent (full conversation history)
-      const context = this.buildAgentContext(agentId);
+      this.state.pendingResponses.set(agentId, '');
+      this.state.isProcessing.set(agentId, true);
       
-      // Send prompt to agent
+      const context = this.buildAgentContext(agentId);
       const success = await adapter.sendPrompt(session.sessionId, context);
       
       if (!success) {
         console.warn(`[Discussion] Failed to send prompt to ${agentId}`);
+        this.state.isProcessing.set(agentId, false);
         this.state.currentTurn++;
         continue;
       }
 
-      // Wait for agent response (polling until PTY is free)
       const response = await this.waitForAgentResponse(agentId, session);
       
       if (response) {
@@ -237,7 +268,6 @@ export class DiscussionSession {
       this.state.currentTurn++;
     }
 
-    // Synthesize final answer if synthesis agent is configured
     if (this.state.synthesisAgent && this.running) {
       await this.synthesizeFinalAnswer();
     }
@@ -255,10 +285,14 @@ export class DiscussionSession {
       
       if (!session || !adapter) continue;
 
+      this.state.pendingResponses.set(agentId, '');
+      this.state.isProcessing.set(agentId, true);
+      
       const context = this.buildAgentContext(agentId);
       const success = await adapter.sendPrompt(session.sessionId, context);
       
       if (!success) {
+        this.state.isProcessing.set(agentId, false);
         this.state.currentTurn++;
         continue;
       }
@@ -291,15 +325,11 @@ export class DiscussionSession {
         return agentId;
       
       case 'context-aware':
-        // TODO: Use LLM to decide which agent is best suited for next response
-        // For now, fall back to round-robin
         const agentId2 = agentIds[this.state.activeAgentIndex % agentIds.length];
         this.state.activeAgentIndex++;
         return agentId2;
       
       case 'user-select':
-        // TODO: Prompt user to select which agent responds next
-        // For now, fall back to round-robin
         const agentId3 = agentIds[this.state.activeAgentIndex % agentIds.length];
         this.state.activeAgentIndex++;
         return agentId3;
@@ -310,10 +340,7 @@ export class DiscussionSession {
   }
 
   private buildAgentContext(currentAgentId: string): string {
-    // Build conversation history excluding the current agent's last response
-    // to avoid circular references
     const relevantMessages = this.state.messages.filter((msg, idx) => {
-      // Include all messages except the current agent's most recent one
       if (msg.agentId === currentAgentId && idx === this.state.messages.length - 1) {
         return false;
       }
@@ -321,13 +348,9 @@ export class DiscussionSession {
     });
 
     const contextLines = relevantMessages.map(msg => {
-      if (msg.role === 'user') {
-        return `User: ${msg.content}`;
-      } else if (msg.role === 'agent' && msg.agentId) {
-        return `${msg.agentId}: ${msg.content}`;
-      } else if (msg.role === 'synthesis') {
-        return `[Synthesis]: ${msg.content}`;
-      }
+      if (msg.role === 'user') return `User: ${msg.content}`;
+      if (msg.role === 'agent' && msg.agentId) return `${msg.agentId}: ${msg.content}`;
+      if (msg.role === 'synthesis') return `[Synthesis]: ${msg.content}`;
       return msg.content;
     });
 
@@ -335,23 +358,28 @@ export class DiscussionSession {
   }
 
   private async waitForAgentResponse(agentId: string, session: AgentSession): Promise<string | null> {
-    // Poll until the agent's PTY is free (not busy processing)
-    const maxWaitMs = 60_000; // 60 second timeout
+    const maxWaitMs = 60_000;
     const pollInterval = 500;
     const startTime = Date.now();
 
     while (Date.now() - startTime < maxWaitMs) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
       
-      // Check if PTY is free (agent finished processing)
-      // This is a simplification — in reality we'd track response state
-      // For now, we assume the agent responds within the timeout
-      break; // Simplified: just wait once and return null
+      if (!session.pty) {
+        const response = this.state.pendingResponses.get(agentId) || '';
+        this.state.isProcessing.set(agentId, false);
+        return response.trim() || null;
+      }
+      
+      const response = this.state.pendingResponses.get(agentId) || '';
+      if (response.length > 0 && !this.state.isProcessing.get(agentId)) {
+        return response.trim() || null;
+      }
     }
 
-    // TODO: Implement proper response capture from PTY output
-    // For now, return null (discussion will continue but without capturing responses)
-    return null;
+    const response = this.state.pendingResponses.get(agentId) || '';
+    this.state.isProcessing.set(agentId, false);
+    return response.trim() || null;
   }
 
   private async synthesizeFinalAnswer(): Promise<void> {
@@ -362,7 +390,6 @@ export class DiscussionSession {
     
     if (!session || !adapter) return;
 
-    // Build synthesis prompt from full discussion history
     const context = this.state.messages.map(msg => {
       if (msg.role === 'user') return `User: ${msg.content}`;
       if (msg.role === 'agent' && msg.agentId) return `${msg.agentId}: ${msg.content}`;
@@ -374,7 +401,6 @@ export class DiscussionSession {
     const success = await adapter.sendPrompt(session.sessionId, synthesisPrompt);
     
     if (success) {
-      // Wait for synthesis response
       const response = await this.waitForAgentResponse(this.state.synthesisAgent!, session);
       
       if (response) {
