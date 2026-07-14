@@ -25,6 +25,7 @@ const eventLabels: Record<string, string> = {
   error: 'Error',
   output: 'Output',
   files: 'Files',
+  interrupted: 'Recovery',
 };
 
 export default function EventTimeline({ sessionId, compact = false, onCopySessionId, onRequestNewSession, onError }: Props) {
@@ -34,6 +35,21 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setInput('');
+      return;
+    }
+    setInput(window.localStorage.getItem(`consiglio:draft:${sessionId}`) || '');
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const key = `consiglio:draft:${sessionId}`;
+    if (input) window.localStorage.setItem(key, input);
+    else window.localStorage.removeItem(key);
+  }, [input, sessionId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -97,10 +113,10 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
     }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || !sessionId || isSending || isAwaitingResponse) return;
+  const handleSend = async (override?: string) => {
+    const promptText = (override ?? input).trim();
+    if (!promptText || !sessionId || isSending || isAwaitingResponse) return;
 
-    const promptText = input.trim();
     const optimisticEvent: Event = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: 'prompt',
@@ -221,6 +237,9 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
             ) : (
               <div className="codex-message-content">
                 {event.content}
+                {event.type === 'interrupted' && event === lastEvent && (
+                  <button className="codex-button codex-button-info codex-continue-button" onClick={() => void handleSend('Continue from where you left off. Review the prior task state and finish the interrupted work.')}>Continue task</button>
+                )}
               </div>
             )}
           </div>
@@ -247,7 +266,7 @@ export default function EventTimeline({ sessionId, compact = false, onCopySessio
           />
           <button
             className="codex-button codex-button-primary"
-            onClick={handleSend}
+            onClick={() => void handleSend()}
             disabled={isSending || isAwaitingResponse || !input.trim()}
           >
             {isSending || isAwaitingResponse ? <span className="codex-spinner" aria-hidden="true" /> : 'Send'}

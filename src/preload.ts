@@ -78,6 +78,18 @@ try {
       };
     }) =>
       ipcRenderer.invoke('settings:update', settings),
+    listSecrets: () =>
+      ipcRenderer.invoke('secrets:list'),
+    upsertSecret: (secret: {
+      id?: string;
+      label: string;
+      envVar: string;
+      value?: string;
+      scope: 'all' | 'codex' | 'local';
+      enabled: boolean;
+    }) => ipcRenderer.invoke('secrets:upsert', secret),
+    removeSecret: (id: string) =>
+      ipcRenderer.invoke('secrets:remove', id),
 
     // Git
     gitStatus: (repoPath: string) =>

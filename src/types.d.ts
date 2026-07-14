@@ -47,6 +47,35 @@ interface CodexSettingsInput {
   localProviderBehavior?: Partial<CodexSettings['localProviderBehavior']>;
 }
 
+type SecretScope = 'all' | 'codex' | 'local';
+
+interface SecretMetadata {
+  id: string;
+  label: string;
+  envVar: string;
+  scope: SecretScope;
+  enabled: boolean;
+  hasValue: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface SecretsStatus {
+  available: boolean;
+  backend: string;
+  secure: boolean;
+  secrets: SecretMetadata[];
+}
+
+interface SecretInput {
+  id?: string;
+  label: string;
+  envVar: string;
+  value?: string;
+  scope: SecretScope;
+  enabled: boolean;
+}
+
 
 interface HealthCheckItem {
   id: string;
@@ -102,6 +131,9 @@ interface CodexAPI {
   reconnectSession: (sessionId: string) => Promise<boolean>;
   getSettings: () => Promise<CodexSettings>;
   updateSettings: (settings: CodexSettingsInput) => Promise<CodexSettings>;
+  listSecrets: () => Promise<SecretsStatus>;
+  upsertSecret: (secret: SecretInput) => Promise<SecretsStatus>;
+  removeSecret: (id: string) => Promise<SecretsStatus>;
 
   // Git
   gitStatus: (repoPath: string) => Promise<GitStatusEntry[]>;

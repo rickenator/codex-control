@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import SessionList from './features/sessions/SessionList';
 import EventTimeline from './features/sessions/EventTimeline';
 import FileBrowser from './features/files/FileBrowser';
+import SecretsManager from './features/secrets/SecretsManager';
 
 type LanProviderConfig = {
   id: string;
@@ -89,6 +90,7 @@ export default function App() {
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [showLanSettings, setShowLanSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
+  const [showSecrets, setShowSecrets] = useState(false);
 
   const handleDiscoverLan = async () => {
     setDiscovering(true);
@@ -875,6 +877,13 @@ export default function App() {
               >
                 Providers
               </button>
+              <button
+                className="codex-button codex-button-secondary"
+                onClick={() => setShowSecrets(true)}
+                title="API keys and MCP credentials"
+              >
+                Secrets
+              </button>
               {activeSession?.status === 'running' && selectedSession && (
                 <button
                   className="codex-button codex-button-danger"
@@ -978,6 +987,12 @@ export default function App() {
       </footer>
 
       {/* LAN Settings Modal */}
+      <SecretsManager
+        open={showSecrets}
+        onClose={() => setShowSecrets(false)}
+        onNotice={(kind, message) => setNotice({ kind, message })}
+      />
+
       {showLanSettings && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,

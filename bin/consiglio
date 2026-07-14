@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+launcher_path="$(readlink -f "${BASH_SOURCE[0]}")"
+project_root="$(cd "$(dirname "$launcher_path")/.." && pwd)"
 cd "$project_root"
 exec npm run dev:all -- "$@"

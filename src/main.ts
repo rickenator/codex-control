@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 
 import { discoverLlamaCppServers } from './main/lan-discovery';
 import path from 'path';
@@ -17,6 +17,7 @@ interface SessionState {
   pty: IPty | null;
   repository: string;
   branch: string;
+  provider: Provider;
   status: SessionStatus;
   terminalBuffer: string;
   args: string[];
@@ -69,10 +70,33 @@ interface SessionRecord {
   provider?: Provider;
   model?: string;
   baseUrl?: string;
+  selectedLanProviderId?: string;
   codexThreadId?: string;
   status: SessionStatus;
   created_at: number;
   updated_at: number;
+}
+
+type SecretScope = 'all' | 'codex' | 'local';
+
+interface StoredSecret {
+  id: string;
+  label: string;
+  envVar: string;
+  encryptedValue: string;
+  scope: SecretScope;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface SecretInput {
+  id?: string;
+  label: string;
+  envVar: string;
+  value?: string;
+  scope: SecretScope;
+  enabled: boolean;
 }
 
 interface AppSettings {
@@ -153,6 +177,7 @@ const retiredRemoteLlamaCpp = {
 let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
+let secretsPath = '';
 let windowStatePath = '';
 let appSettings: AppSettings = {
   defaultProvider: 'remote_llamacpp',
@@ -178,6 +203,7 @@ const sessions = new Map<string, SessionState>();
 const records = new Map<string, SessionRecord>();
 const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
+const secrets = new Map<string, StoredSecret>();
 
 function isProvider(value: unknown): value is Provider {
   return value === 'default' || value === 'remote_llamacpp' || value === 'gpt56' || value === 'lan' || value === 'ollama';
@@ -347,6 +373,109 @@ function saveSettings() {
   writeJsonAtomic(settingsPath, appSettings);
 }
 
+function secretMetadata(secret: StoredSecret) {
+  return {
+    id: secret.id,
+    label: secret.label,
+    envVar: secret.envVar,
+    scope: secret.scope,
+    enabled: secret.enabled,
+    hasValue: Boolean(secret.encryptedValue),
+    createdAt: secret.createdAt,
+    updatedAt: secret.updatedAt,
+  };
+}
+
+function secretsStatus() {
+  const backend = process.platform === 'linux' && safeStorage.isEncryptionAvailable()
+    ? safeStorage.getSelectedStorageBackend()
+    : safeStorage.isEncryptionAvailable() ? 'os_keychain' : 'unavailable';
+  return {
+    available: safeStorage.isEncryptionAvailable(),
+    backend,
+    secure: backend !== 'basic_text' && backend !== 'unavailable',
+    secrets: [...secrets.values()].sort((left, right) => left.label.localeCompare(right.label)).map(secretMetadata),
+  };
+}
+
+function saveSecrets() {
+  if (!secretsPath) return;
+  writeJsonAtomic(secretsPath, { secrets: [...secrets.values()] });
+  fs.chmodSync(secretsPath, 0o600);
+}
+
+function initSecrets() {
+  secretsPath = path.join(app.getPath('userData'), 'consiglio-secrets.json');
+  const saved = readJsonWithFallback<{ secrets?: StoredSecret[] }>([secretsPath]);
+  for (const secret of saved?.secrets || []) {
+    if (secret.id && secret.envVar && secret.encryptedValue) secrets.set(secret.id, secret);
+  }
+}
+
+function upsertSecret(input: SecretInput) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable. Unlock or configure the operating-system keyring and restart Consiglio.');
+  }
+  const envVar = input.envVar?.trim().toUpperCase();
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(envVar)) {
+    throw new Error('Environment variable names may contain only letters, numbers, and underscores, and cannot start with a number.');
+  }
+  const existing = input.id ? secrets.get(input.id) : undefined;
+  const duplicate = [...secrets.values()].find(secret => secret.envVar === envVar && secret.id !== existing?.id);
+  if (duplicate) throw new Error(`${envVar} is already managed by ${duplicate.label}.`);
+  const previousEnvVar = existing?.envVar;
+  const value = input.value;
+  if (!existing && !value) throw new Error('A secret value is required.');
+  const now = Date.now();
+  const secret: StoredSecret = {
+    id: existing?.id || `secret_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    label: input.label?.trim() || envVar,
+    envVar,
+    encryptedValue: value ? safeStorage.encryptString(value).toString('base64') : existing!.encryptedValue,
+    scope: input.scope === 'codex' || input.scope === 'local' ? input.scope : 'all',
+    enabled: input.enabled !== false,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  secrets.set(secret.id, secret);
+  saveSecrets();
+  refreshSessionSecretEnvironments([previousEnvVar, secret.envVar]);
+  return secretsStatus();
+}
+
+function removeSecret(id: string) {
+  const envVar = secrets.get(id)?.envVar;
+  const removed = secrets.delete(id);
+  if (removed) {
+    saveSecrets();
+    refreshSessionSecretEnvironments([envVar]);
+  }
+  return secretsStatus();
+}
+
+function applySecretsToEnvironment(env: NodeJS.ProcessEnv, provider: Provider) {
+  const isLocal = provider === 'remote_llamacpp' || provider === 'lan' || provider === 'ollama';
+  for (const secret of secrets.values()) {
+    if (!secret.enabled || (secret.scope === 'local' && !isLocal) || (secret.scope === 'codex' && isLocal)) continue;
+    try {
+      env[secret.envVar] = safeStorage.decryptString(Buffer.from(secret.encryptedValue, 'base64'));
+    } catch (error) {
+      console.error(`Could not decrypt credential ${secret.envVar}:`, error);
+    }
+  }
+}
+
+function refreshSessionSecretEnvironments(envVars: Array<string | undefined>) {
+  const affected = new Set(envVars.filter((envVar): envVar is string => Boolean(envVar)));
+  for (const state of sessions.values()) {
+    for (const envVar of affected) {
+      if (process.env[envVar] === undefined) delete state.env[envVar];
+      else state.env[envVar] = process.env[envVar];
+    }
+    applySecretsToEnvironment(state.env, state.provider);
+  }
+}
+
 function writeJsonAtomic(filePath: string, data: unknown) {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
@@ -403,6 +532,17 @@ function initStore() {
       record.codexThreadId = undefined;
     }
     if (record.status === 'running') record.status = 'stopped';
+    const lastEvent = [...sessionEvents].reverse().find(event => event.type !== 'system');
+    if (lastEvent?.type === 'prompt' || lastEvent?.type === 'tool_call') {
+      sessionEvents.push({
+        id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        session_id: record.id,
+        type: 'interrupted',
+        content: 'The previous response was interrupted. Continue on the same Codex thread when you are ready.',
+        timestamp: Date.now(),
+      });
+      events.set(record.id, sessionEvents.slice(-500));
+    }
   }
   saveStore();
 }
@@ -615,8 +755,10 @@ function extractWorkspaceImages(repository: string, output: string) {
     .slice(0, 12);
 }
 
-function findWorkspaceImages(repository: string, limit = 12) {
+function findWorkspaceImages(repository: string, limit = 12, query = '') {
   const images: string[] = [];
+  const wantsBrandAsset = /\b(logos?|icons?|branding|app icon)\b/i.test(query);
+  const ignoredDirectories = new Set(['node_modules', 'dist', 'coverage', 'target', '__pycache__']);
   const visit = (directory: string, depth: number) => {
     if (images.length >= limit || depth > 4) return;
     let entries: fs.Dirent[];
@@ -626,19 +768,27 @@ function findWorkspaceImages(repository: string, limit = 12) {
       return;
     }
     for (const entry of entries) {
-      if (images.length >= limit || entry.name.startsWith('.')) break;
+      if (images.length >= limit) break;
+      if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(fullPath, depth + 1);
-      else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(entry.name)) images.push(fullPath);
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name)) visit(fullPath, depth + 1);
+      } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(entry.name)) {
+        if (!wantsBrandAsset || /\b(icon|logo)\b/i.test(entry.name) || /[\\/]icons?[\\/]/i.test(fullPath)) images.push(fullPath);
+      }
     }
   };
   visit(path.resolve(repository), 0);
-  return images;
+  return images.sort((left, right) => {
+    const leftScore = /[\\/]build[\\/]icons?[\\/]/i.test(left) ? 0 : 1;
+    const rightScore = /[\\/]build[\\/]icons?[\\/]/i.test(right) ? 0 : 1;
+    return leftScore - rightScore || left.length - right.length || left.localeCompare(right);
+  });
 }
 
 function isImageDisplayRequest(sessionId: string, prompt: string) {
   const normalized = prompt.trim().toLowerCase();
-  if (/\b(show|display|preview|open|view)\b.*\b(images?|pictures?|photos?)\b/.test(normalized)) return true;
+  if (/\b(show|display|preview|open|view)\b.*\b(images?|pictures?|photos?|logos?|icons?|branding)\b/.test(normalized)) return true;
   if (!/^(do|show|try) (it|that) again[.!]?$/i.test(normalized)) return false;
   const previousPrompt = [...(events.get(sessionId) || [])]
     .reverse()
@@ -855,8 +1005,10 @@ function launchSession(
   isReconnect: boolean,
 ) {
   const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
+  const previousRecord = records.get(sessionId);
   const args: string[] = [];
   const env = { ...process.env };
+  applySecretsToEnvironment(env, provider);
   const isLocalOpenAiCompatibleProvider = provider === 'remote_llamacpp' || provider === 'lan';
   if (isLocalOpenAiCompatibleProvider) {
     const behavior = appSettings.localProviderBehavior;
@@ -969,12 +1121,6 @@ function launchSession(
       '-c', 'model_providers.lan.env_key="OPENAI_API_KEY"',
     );
 
-    records.set(sessionId, {
-      id: sessionId, repository, branch, provider,
-      model: lanModel,
-      baseUrl: normalizedBaseUrl,
-      status: 'running', created_at: Date.now(), updated_at: Date.now(),
-    });
   }
 
   const state: SessionState = {
@@ -982,6 +1128,7 @@ function launchSession(
     pty: null,
     repository,
     branch,
+    provider,
     status: 'running',
     terminalBuffer: '',
     args,
@@ -1010,9 +1157,10 @@ function launchSession(
         : provider === 'lan' && getLanProvider(options.selectedLanProviderId)
         ? lanProviderBaseUrl(getLanProvider(options.selectedLanProviderId)!)
         : undefined,
+    selectedLanProviderId: options.selectedLanProviderId || previousRecord?.selectedLanProviderId,
     codexThreadId: options.codexThreadId,
     status: 'running',
-    created_at: Date.now(),
+    created_at: previousRecord?.created_at || Date.now(),
     updated_at: Date.now(),
   });
   saveStore();
@@ -1051,8 +1199,14 @@ function sendSessionPrompt(sessionId: string, input: string) {
 
   const shouldDisplayImages = isImageDisplayRequest(sessionId, prompt);
   recordEvent(sessionId, 'prompt', prompt);
+  const record = records.get(sessionId);
+  if (record) {
+    record.updated_at = Date.now();
+    saveStore();
+    emitSessionUpdate();
+  }
   if (shouldDisplayImages) {
-    const imagePaths = findWorkspaceImages(state.repository);
+    const imagePaths = findWorkspaceImages(state.repository, 12, prompt);
     if (imagePaths.length === 0) {
       recordEvent(sessionId, 'response', 'No previewable images were found in this task directory.');
     } else {
@@ -1184,6 +1338,7 @@ ipcMain.handle('session:reconnect', (_event, sessionId: string) => {
           apiKey: appSettings.remoteLlamaCpp.apiKey,
         }
       : undefined,
+    selectedLanProviderId: record.selectedLanProviderId,
     codexThreadId: record.codexThreadId,
   }, true);
   const updated = records.get(sessionId);
@@ -1212,6 +1367,9 @@ ipcMain.handle('approval:get-pending', (_event, sessionId?: string) => getPendin
 ipcMain.handle('approval:approve', (_event, approvalId: string) => approveCommand(approvalId));
 ipcMain.handle('approval:reject', (_event, approvalId: string) => rejectCommand(approvalId));
 ipcMain.handle('settings:get', () => appSettings);
+ipcMain.handle('secrets:list', () => secretsStatus());
+ipcMain.handle('secrets:upsert', (_event, input: SecretInput) => upsertSecret(input));
+ipcMain.handle('secrets:remove', (_event, id: string) => removeSecret(id));
 ipcMain.handle('system:startup-checks', () => runStartupChecks());
 ipcMain.handle('system:check-updates', () => checkForAppUpdate());
 ipcMain.handle('system:check-providers', () => providerHealthChecks());
@@ -1347,6 +1505,7 @@ ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {
 app.whenReady().then(() => {
   initStore();
   initSettings();
+  initSecrets();
   Menu.setApplicationMenu(buildApplicationMenu());
   createWindow();
   app.on('activate', () => {
