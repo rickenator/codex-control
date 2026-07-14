@@ -142,12 +142,28 @@ export function detectAgents(emitters: EventEmitters): AgentInfo[] {
     results.push({ id: 'codex', name: 'Codex CLI', installed: false, authenticated: false });
   }
   
-  // Open Interpreter detection (stub)
+  // Open Interpreter detection
   try {
     const oiAdapter = new (require('./adapters/open-interpreter-adapter').OpenInterpreterAdapter)(emitters);
     results.push(...(oiAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'open-interpreter', name: 'Open Interpreter', installed: false, authenticated: false });
+  }
+  
+  // Aider detection (stub)
+  try {
+    const aiderAdapter = new (require('./adapters/aider-adapter').AiderAdapter)(emitters);
+    results.push(...(aiderAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'aider', name: 'Aider', installed: false, authenticated: false });
+  }
+  
+  // Claude Code detection (stub)
+  try {
+    const claudeAdapter = new (require('./adapters/claude-code-adapter').ClaudeCodeAdapter)(emitters);
+    results.push(...(claudeAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'claude-code', name: 'Claude Code', installed: false, authenticated: false });
   }
   
   return results;

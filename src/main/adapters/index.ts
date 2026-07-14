@@ -8,6 +8,8 @@
 import type { AgentAdapter, AgentEvent, AgentApproval, EventEmitters } from '../agent-adapter';
 import { CodexAdapter } from './codex-adapter';
 import { OpenInterpreterAdapter } from './open-interpreter-adapter';
+import { AiderAdapter } from './aider-adapter';
+import { ClaudeCodeAdapter } from './claude-code-adapter';
 
 export function getAdapter(
   agent: 'codex' | 'open-interpreter' | 'aider' | 'claude-code',
@@ -19,9 +21,9 @@ export function getAdapter(
     case 'open-interpreter':
       return new OpenInterpreterAdapter(emitters);
     case 'aider':
-      throw new Error('Aider adapter not yet implemented');
+      return new AiderAdapter(emitters);
     case 'claude-code':
-      throw new Error('Claude Code adapter not yet implemented');
+      return new ClaudeCodeAdapter(emitters);
     default:
       throw new Error(`Unknown agent: ${agent}`);
   }
@@ -29,3 +31,5 @@ export function getAdapter(
 
 export { CodexAdapter } from './codex-adapter';
 export { OpenInterpreterAdapter } from './open-interpreter-adapter';
+export { AiderAdapter } from './aider-adapter';
+export { ClaudeCodeAdapter } from './claude-code-adapter';

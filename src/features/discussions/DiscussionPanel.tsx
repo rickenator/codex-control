@@ -236,6 +236,17 @@ export default function DiscussionPanel({ onError }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeDiscussion?.history]);
 
+  // Load available agents from IPC on mount
+  useEffect(() => {
+    window.codexApi.getAvailableAgents().then((agents) => {
+      const agentMap = new Map(agents.map(a => [a.id, a]));
+      setAvailableAgents(AGENTS.map(a => {
+        const db = agentMap.get(a.id);
+        return db ? { ...a, name: db.name } : a;
+      }));
+    }).catch(() => {});
+  }, []);
+
   // Subscribe to discussion events
   useEffect(() => {
     if (!activeDiscussion) return;
