@@ -169,7 +169,11 @@ function validateWindows() {
   const resources = requireDirectory(path.join(unpacked, 'resources'));
   requireFile(path.join(resources, 'app.asar'), 1_000);
 
-  for (const binary of [setup, portable, executable, ...nativeModules(resources)]) {
+  for (const launcher of [setup, portable]) {
+    const machine = readPeMachine(launcher);
+    if (machine !== 0x14c && machine !== 0x8664) fail(`${launcher} is not an x86-compatible Windows launcher`);
+  }
+  for (const binary of [executable, ...nativeModules(resources)]) {
     if (readPeMachine(binary) !== 0x8664) fail(`${binary} is not Windows x64`);
   }
   if (requireSigning) {
