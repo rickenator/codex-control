@@ -231,5 +231,5 @@ contextBridge.exposeInMainWorld('codexApi', {
       return () => ipcRenderer.removeListener('discussion:error', handler);
     },
     getAvailableAgents: () =>
-      ipcRenderer.invoke('agents:list'),
+      ipcRenderer.invoke('agents:readiness'),
 });
