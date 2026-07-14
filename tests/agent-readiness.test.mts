@@ -38,6 +38,7 @@ function runnerFor(
 
 test('reports ready installed agents with versions and support tiers', async () => {
   const agents = await detectAgentReadiness({
+    env: {},
     now: () => 1234,
     runner: runnerFor({
       'codex --version': result({ stdout: 'codex-cli 1.2.3\n' }),
@@ -66,7 +67,7 @@ test('reports ready installed agents with versions and support tiers', async () 
 
 test('reports missing CLIs without attempting follow-up authentication', async () => {
   const calls: string[] = [];
-  const agents = await detectAgentReadiness({ runner: runnerFor({}, calls) });
+  const agents = await detectAgentReadiness({ env: {}, runner: runnerFor({}, calls) });
 
   assert.equal(agents.length, 4);
   assert.ok(agents.every(agent => agent.state === 'missing'));
@@ -81,6 +82,7 @@ test('reports missing CLIs without attempting follow-up authentication', async (
 
 test('requires Codex authentication before selection', async () => {
   const agents = await detectAgentReadiness({
+    env: {},
     runner: runnerFor({
       'codex --version': result({ stdout: 'codex-cli 1.2.3\n' }),
       'codex login status': result({ exitCode: 1, stderr: 'Not logged in. Run codex login.\n' }),
@@ -95,8 +97,38 @@ test('requires Codex authentication before selection', async () => {
   assert.match(codex?.diagnostic || '', /not logged in/i);
 });
 
+test('does not mistake a successful negative auth status for authentication', async () => {
+  const agents = await detectAgentReadiness({
+    env: {},
+    runner: runnerFor({
+      'codex --version': result({ stdout: 'codex-cli 1.2.3\n' }),
+      'codex login status': result({ exitCode: 0, stdout: 'Not authenticated. Run codex login.\n' }),
+    }),
+  });
+
+  const codex = agents.find(agent => agent.id === 'codex');
+  assert.equal(codex?.authenticated, false);
+  assert.equal(codex?.selectable, false);
+  assert.equal(codex?.state, 'configuration-required');
+});
+
+test('uses explicit executable overrides for probes', async () => {
+  const calls: string[] = [];
+  const agents = await detectAgentReadiness({
+    env: { AIDER_BIN: '/opt/tools/aider-custom' },
+    runner: runnerFor({
+      '/opt/tools/aider-custom --version': result({ stdout: 'aider custom\n' }),
+    }, calls),
+  });
+
+  const aider = agents.find(agent => agent.id === 'aider');
+  assert.equal(aider?.selectable, true);
+  assert.ok(calls.includes('/opt/tools/aider-custom --version'));
+});
+
 test('isolates a timed-out agent check from the other results', async () => {
   const agents = await detectAgentReadiness({
+    env: {},
     timeoutMs: 250,
     runner: runnerFor({
       'interpreter --version': result({ stdout: 'Open Interpreter 0.4.2\n' }),
@@ -115,6 +147,7 @@ test('isolates a timed-out agent check from the other results', async () => {
 
 test('returns partial readiness when one probe throws unexpectedly', async () => {
   const agents = await detectAgentReadiness({
+    env: {},
     runner: runnerFor({
       'interpreter --version': result({ stdout: 'Open Interpreter 0.4.2\n' }),
       'claude --version': new Error('probe transport failed'),
