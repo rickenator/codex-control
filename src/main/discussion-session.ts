@@ -33,8 +33,6 @@ export interface DiscussionOptions {
   maxTurns?: number;
   moderatorStrategy?: 'round-robin' | 'context-aware' | 'user-select';
   synthesisAgent?: 'codex' | 'open-interpreter';
-  /** Test seam and future plugin hook. Omitted by normal renderer IPC calls. */
-  adapterFactory?: DiscussionAdapterFactory;
   /** Maximum wait for an event-streamed response. */
   responseTimeoutMs?: number;
   /** Quiet period after the last response event before a turn is considered complete. */
@@ -127,6 +125,7 @@ export class DiscussionSession {
   static async create(
     options: DiscussionOptions,
     emitters?: DiscussionEmitters,
+    injectedAdapterFactory?: DiscussionAdapterFactory,
   ): Promise<DiscussionSession> {
     const sessionId = `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const baseEmitters: DiscussionEmitters = emitters || {
@@ -174,9 +173,9 @@ export class DiscussionSession {
     };
 
     // Keep the orchestration module importable in plain Node tests. The real
-    // adapter registry pulls in Electron and native PTY modules, so load it only
-    // when production code did not supply an injected adapter factory.
-    const adapterFactory = options.adapterFactory
+    // registry pulls in Electron and native PTY modules, so load it only when
+    // production code did not supply an injected host dependency.
+    const adapterFactory = injectedAdapterFactory
       || (await import('./adapters')).getAdapter;
 
     try {
