@@ -50,7 +50,6 @@
     "productName": "Consiglio",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "executableName": "consiglio",
-    "electronDist": "node_modules/electron/dist",
     "npmRebuild": true,
     "linux": {
       "target": [
