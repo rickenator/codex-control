@@ -51,7 +51,7 @@ type ApprovalRequest = {
 };
 
 const defaultSettings: AppSettings = {
-  defaultProvider: 'remote_llamacpp',
+  defaultProvider: 'default',
   ollama: {
     baseUrl: 'http://localhost:11434',
     model: 'qwen2.5:32b-instruct-q4_K_M',
@@ -81,6 +81,7 @@ export default function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [providerStatus, setProviderStatus] = useState<Record<string, 'ok' | 'error' | 'checking' | null>>({});
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lanForm, setLanForm] = useState<{ id: string; name: string; host: string; port: string; model: string; apiKey: string }>({
@@ -111,18 +112,51 @@ export default function App() {
     }
   };
 
+  const startRecommendedSession = async (status: StartupStatus, currentSettings: AppSettings) => {
+    const recommendation = status.providerSetup;
+    if (!recommendation.ready || !recommendation.recommendedProvider) return false;
+    const nextSettings: AppSettings = {
+      ...currentSettings,
+      defaultProvider: recommendation.recommendedProvider,
+      ollama: recommendation.recommendedProvider === 'ollama'
+        ? { ...currentSettings.ollama, model: recommendation.recommendedModel || currentSettings.ollama.model }
+        : currentSettings.ollama,
+    };
+    const savedSettings = await window.codexApi.updateSettings(nextSettings);
+    setSettings(savedSettings);
+    const created = await window.codexApi.startSession({
+      provider: recommendation.recommendedProvider,
+      ollama: recommendation.recommendedProvider === 'ollama' ? savedSettings.ollama : undefined,
+    });
+    const updatedSessions = await window.codexApi.listSessions();
+    setSessions(updatedSessions);
+    setSelectedSession(created.sessionId);
+    return true;
+  };
+
   useEffect(() => {
-    window.codexApi.listSessions()
-      .then(async (loadedSessions) => {
+    let cancelled = false;
+    const initialize = async () => {
+      try {
+        const [loadedSessions, loadedSettings, status] = await Promise.all([
+          window.codexApi.listSessions(),
+          window.codexApi.getSettings(),
+          window.codexApi.getStartupStatus(),
+        ]);
+        if (cancelled) return;
         setSessions(loadedSessions);
+        setSettings(loadedSettings);
+        setStartupStatus(status);
+        const providerStates: Record<string, 'ok' | 'error' | 'checking' | null> = {};
+        status.checks.forEach(check => {
+          providerStates[check.id] = check.status === 'ok' ? 'ok' : check.status === 'error' ? 'error' : null;
+        });
+        setProviderStatus(providerStates);
         const preferredSession = selectedSession && loadedSessions.some(session => session.id === selectedSession)
           ? selectedSession
           : loadedSessions[0]?.id;
         if (!preferredSession) {
-          const created = await window.codexApi.startSession({});
-          const updatedSessions = await window.codexApi.listSessions();
-          setSessions(updatedSessions);
-          setSelectedSession(created.sessionId);
+          await startRecommendedSession(status, loadedSettings);
           return;
         }
         setSelectedSession(preferredSession);
@@ -130,21 +164,14 @@ export default function App() {
         if (preferredRecord?.status !== 'running') {
           await window.codexApi.reconnectSession(preferredSession);
         }
-      })
-      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load sessions: ${error.message}` }));
-    window.codexApi.getSettings()
-      .then(setSettings)
-      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not load settings: ${error.message}` }));
-    window.codexApi.getStartupStatus()
-      .then(setStartupStatus)
-      .catch((error: Error) => setNotice({ kind: 'error', message: `Could not run startup checks: ${error.message}` }));
-    window.codexApi.checkProviders()
-      .then((checks: Array<{ id: string; status: string; message: string }>) => {
-        const status: Record<string, 'ok' | 'error' | 'checking' | null> = {};
-        checks.forEach(c => { status[c.id] = c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : null; });
-        setProviderStatus(status);
-      })
-      .catch(() => {});
+      } catch (error) {
+        if (!cancelled) setNotice({ kind: 'error', message: `Could not initialize Consiglio: ${(error as Error).message}` });
+      } finally {
+        if (!cancelled) setIsInitializing(false);
+      }
+    };
+    void initialize();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -193,6 +220,7 @@ export default function App() {
   }, [selectedSession]);
 
   const activeSession = useMemo(() => sessions.find(session => session.id === selectedSession), [sessions, selectedSession]);
+  const activeConnection = activeSession ? describeConnection(activeSession, settings) : '';
   const [quickProvider, setQuickProvider] = useState<'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama'>(settings.defaultProvider);
 
   useEffect(() => {
@@ -440,9 +468,39 @@ export default function App() {
     try {
       const refreshed = await window.codexApi.getStartupStatus();
       setStartupStatus(refreshed);
+      if (sessions.length === 0 && refreshed.providerSetup.ready) {
+        const started = await startRecommendedSession(refreshed, settings);
+        if (started) {
+          setNotice({
+            kind: 'success',
+            message: refreshed.providerSetup.recommendedProvider === 'ollama'
+              ? `Started with free local model ${refreshed.providerSetup.recommendedModel}.`
+              : 'Started with your Codex account.',
+          });
+          return;
+        }
+      }
       setNotice({ kind: refreshed.appUpdate.updateAvailable ? 'success' : 'info', message: refreshed.appUpdate.message });
     } catch (e) {
       setNotice({ kind: 'error', message: `Could not refresh health checks: ${(e as Error).message}` });
+    } finally {
+      setIsRefreshingStatus(false);
+    }
+  };
+
+  const handleUseDiscoveredLan = async () => {
+    const setup = startupStatus?.providerSetup;
+    if (!setup?.lanProviderId) return;
+    setIsRefreshingStatus(true);
+    try {
+      const nextSettings = await window.codexApi.updateSettings({ ...settings, defaultProvider: 'lan' });
+      setSettings(nextSettings);
+      const created = await window.codexApi.startSession({ provider: 'lan', selectedLanProviderId: setup.lanProviderId });
+      setSessions(await window.codexApi.listSessions());
+      setSelectedSession(created.sessionId);
+      setNotice({ kind: 'success', message: `Connected to ${setup.lanEndpoint}.` });
+    } catch (error) {
+      setNotice({ kind: 'error', message: `Could not use network provider: ${(error as Error).message}` });
     } finally {
       setIsRefreshingStatus(false);
     }
@@ -467,6 +525,23 @@ export default function App() {
   }, [selectedSession]);
 
   const healthSummary = summarizeHealth(startupStatus);
+
+  if (isInitializing && sessions.length === 0) {
+    return <ProviderSetupScreen status={null} checking />;
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <ProviderSetupScreen
+        status={startupStatus}
+        checking={isRefreshingStatus}
+        onRefresh={() => void handleRefreshStartupStatus()}
+        onUseLan={() => void handleUseDiscoveredLan()}
+        onOpenCodex={() => void window.codexApi.openPath('https://github.com/openai/codex#installation')}
+        onOpenOllama={() => void window.codexApi.openPath('https://ollama.com/download')}
+      />
+    );
+  }
 
   const sandboxColors: Record<string, string> = {
     'danger-full-access': '#f85149',
@@ -679,7 +754,7 @@ export default function App() {
               </div>
               <input
                 type="text"
-                placeholder="Base URL (e.g., http://192.168.1.243:8081)"
+                placeholder="Base URL (e.g., http://192.168.1.50:8081)"
                 value={settings.remoteLlamaCpp.baseUrl}
                 onChange={(e) => void handleSettingsChange({ ...settings, remoteLlamaCpp: { ...settings.remoteLlamaCpp, baseUrl: e.target.value } })}
                 className="codex-input"
@@ -804,6 +879,7 @@ export default function App() {
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           settings={{ ...settings, lanProviders: settings.lanProviders || [] }}
+          connectionLabel={activeConnection}
           onSettingsChange={(s: any) => handleSettingsChange(s)}
         />
 
@@ -814,8 +890,8 @@ export default function App() {
               <span className="codex-panel-heading">
                 {activeSession?.repository ? sessionLabel(activeSession.repository) : 'New task'}
               </span>
-              <span className="codex-kicker">
-                {activeSession ? `${activeSession.branch || 'current branch'} · ${activeSession.model || 'Codex'}` : 'Start a task or choose one from the sidebar'}
+              <span className="codex-kicker" title={activeConnection}>
+                {activeSession ? `${activeSession.branch || 'current branch'} · ${activeConnection}` : 'Start a task or choose one from the sidebar'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -923,7 +999,7 @@ export default function App() {
               />
               <input
                 type="text"
-                placeholder="Host (e.g., 192.168.1.243)"
+                placeholder="Host (e.g., 192.168.1.50)"
                 value={lanForm.host}
                 onChange={e => setLanForm({ ...lanForm, host: e.target.value })}
                 className="codex-input"
@@ -1006,6 +1082,23 @@ function sessionLabel(repository?: string) {
   return segments[segments.length - 1] || trimmed;
 }
 
+function describeConnection(session: SessionRecord, settings: AppSettings) {
+  const model = session.model?.trim();
+  if (session.provider === 'ollama') {
+    return ['Ollama', model, session.baseUrl || settings.ollama.baseUrl].filter(Boolean).join(' · ');
+  }
+  if (session.provider === 'remote_llamacpp') {
+    return ['Remote llama.cpp', model, session.baseUrl || settings.remoteLlamaCpp.baseUrl].filter(Boolean).join(' · ');
+  }
+  if (session.provider === 'lan') {
+    const provider = settings.lanProviders.find(candidate => candidate.id === session.selectedLanProviderId);
+    const endpoint = session.baseUrl || (provider ? `http://${provider.host}:${provider.port}/v1` : 'LAN endpoint');
+    return [provider?.name || 'Network AI', model, endpoint].filter(Boolean).join(' · ');
+  }
+  if (session.provider === 'gpt56') return `OpenAI cloud · ${model || 'gpt-5.6'} · Codex account`;
+  return ['OpenAI cloud', model || 'model selected by Codex', 'Codex account'].join(' · ');
+}
+
 function summarizeHealth(status: StartupStatus | null) {
   if (!status) return { message: 'Checking Consiglio releases, Codex CLI, and provider interfaces…', color: '#58a6ff', borderColor: 'rgba(88, 166, 255, 0.28)' };
   if (status.appUpdate.updateAvailable) return { message: status.appUpdate.message, color: '#d29922', borderColor: 'rgba(210, 153, 34, 0.36)' };
@@ -1023,5 +1116,97 @@ function HealthPill({ label, status, message }: { label: string; status: HealthC
       <span className="codex-chip-label" style={{ color }}>{label}</span>
       <span className="codex-chip-value" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message}</span>
     </div>
+  );
+}
+
+function ProviderSetupScreen({
+  status,
+  checking,
+  onRefresh,
+  onOpenCodex,
+  onOpenOllama,
+  onUseLan,
+}: {
+  status: StartupStatus | null;
+  checking: boolean;
+  onRefresh?: () => void;
+  onOpenCodex?: () => void;
+  onOpenOllama?: () => void;
+  onUseLan?: () => void;
+}) {
+  const setup = status?.providerSetup;
+  return (
+    <main className="provider-setup-shell">
+      <section className="provider-setup-card" aria-live="polite">
+        <div className="provider-setup-brand">Consiglio</div>
+        <div className="provider-setup-heading">
+          <span className="provider-setup-kicker">FIRST RUN</span>
+          <h1>{checking ? 'Checking your AI setup' : 'Choose how Consiglio thinks'}</h1>
+          <p>
+            Consiglio checks your Codex account, free local Ollama models, and compatible AI servers on your network.
+            It will only create a task after a provider responds successfully.
+          </p>
+        </div>
+
+        <div className="provider-setup-options">
+          <article className={`provider-setup-option${setup?.codexAuthenticated ? ' is-ready' : ''}`}>
+            <div className="provider-setup-option-title">
+              <span>Codex</span>
+              <span className="provider-setup-tag">Recommended</span>
+            </div>
+            <p>Use your existing Codex authentication, models, configuration, and MCP servers.</p>
+            <div className="provider-setup-status">
+              {setup?.codexAuthenticated
+                ? 'Ready and signed in'
+                : setup?.codexInstalled
+                  ? 'Installed; sign in from a terminal with: codex login'
+                  : 'Codex CLI must be installed before Consiglio can run tasks'}
+            </div>
+            {!setup?.codexAuthenticated && (
+              <button className="codex-button codex-button-secondary" onClick={onOpenCodex}>Install Codex</button>
+            )}
+          </article>
+
+          <article className={`provider-setup-option${setup?.ollamaAvailable ? ' is-ready' : ''}`}>
+            <div className="provider-setup-option-title">
+              <span>Ollama</span>
+              <span className="provider-setup-tag is-free">Free and local</span>
+            </div>
+            <p>Run an AI model on this computer. No API key or paid cloud account is required.</p>
+            <div className="provider-setup-status">
+              {setup?.ollamaAvailable
+                ? `${setup.ollamaModels.length} local model${setup.ollamaModels.length === 1 ? '' : 's'} detected`
+                : 'Not detected. Install Ollama, then download any model.'}
+            </div>
+            {!setup?.ollamaAvailable && (
+              <button className="codex-button codex-button-secondary" onClick={onOpenOllama}>Get Ollama</button>
+            )}
+          </article>
+
+          <article className={`provider-setup-option${setup?.lanAvailable ? ' is-ready' : ''}`}>
+            <div className="provider-setup-option-title">
+              <span>Network AI</span>
+              <span className="provider-setup-tag is-lan">Automatic</span>
+            </div>
+            <p>Search this computer&apos;s actual local network for compatible llama.cpp and Ollama servers.</p>
+            <div className="provider-setup-status">
+              {setup?.lanAvailable
+                ? `${setup.lanProviderName} · ${setup.lanModel} · ${setup.lanEndpoint}`
+                : 'No verified network provider was found. The network is searched again when you check.'}
+            </div>
+            {setup?.lanAvailable && (
+              <button className="codex-button codex-button-secondary" onClick={onUseLan}>Use this endpoint</button>
+            )}
+          </article>
+        </div>
+
+        <div className="provider-setup-actions">
+          <span>{checking ? 'Looking for Codex and local models...' : 'Already set up? Check again and Consiglio will start automatically.'}</span>
+          <button className="codex-button codex-button-primary" onClick={onRefresh} disabled={checking || !onRefresh}>
+            {checking ? 'Checking...' : 'Check again'}
+          </button>
+        </div>
+      </section>
+    </main>
   );
 }

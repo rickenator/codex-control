@@ -56,16 +56,16 @@ Install the latest release from the [Consiglio download page](https://github.com
 | --- | --- | --- |
 | Linux x64 | `.deb` for Debian and Ubuntu | AppImage for other distributions |
 | Windows x64 | Setup `.exe` | Portable `.exe` |
-| macOS Intel | `.dmg` | `.zip` |
+| macOS Apple Silicon or Intel | `.dmg` | `.zip` |
 
-Linux is the primary and most thoroughly exercised platform. The current macOS build targets Intel Macs.
+Every change is type-checked, tested, built, and packaged on Linux, Windows, and macOS. Release builds include native Intel and Apple Silicon macOS packages.
 
 ### Requirements
 
 - A working `codex` executable on `PATH`
 - A supported 64-bit desktop platform
 
-Node.js 20 or newer and npm are required only when installing from source.
+Node.js 22 or newer and npm are required only when installing from source.
 
 ### Install From Source
 
@@ -73,6 +73,12 @@ Node.js 20 or newer and npm are required only when installing from source.
 git clone https://github.com/rickenator/Consiglio.git
 cd Consiglio
 npm install
+npm run dev:all
+```
+
+That command works in Bash, PowerShell, and Command Prompt. Linux and macOS users can optionally install the convenience launcher:
+
+```bash
 mkdir -p ~/bin
 ln -sf "$PWD/bin/consiglio" ~/bin/consiglio
 ```
@@ -83,7 +89,7 @@ Make sure `~/bin` is on `PATH`, then launch from any directory:
 consiglio
 ```
 
-The launcher builds the current checkout and opens the Electron app. No workspace selection is required: Consiglio reconnects the last task when one exists and creates a task against the Consiglio checkout when none exist.
+The launcher builds the current checkout and opens the Electron app. No workspace selection is required: Consiglio reconnects the last task when one exists. A packaged clean install creates a writable `Consiglio Workspace` folder in the operating system's Documents directory, with an application-data fallback when Documents is protected.
 
 ## Everyday Workflow
 
@@ -94,6 +100,17 @@ The launcher builds the current checkout and opens the Electron app. No workspac
 5. Switch tasks from the left rail without losing conversation state.
 
 Use `Shift+Enter` for a newline. Conversation text supports normal selection, copy, paste, and native right-click menus.
+
+## Automatic Provider Setup
+
+On a clean installation, Consiglio verifies providers before creating the first task:
+
+1. An installed and authenticated Codex CLI is used automatically.
+2. If Codex is not signed in, a running Ollama installation with a local model is used as the free fallback.
+3. Compatible llama.cpp and Ollama servers are discovered automatically by scanning the computer's active local IPv4 networks; the user explicitly confirms a discovered endpoint before prompts are sent to it.
+4. If nothing usable responds, Consiglio shows a first-run setup screen instead of creating a broken conversation.
+
+Discovered network endpoints are accepted only when their model API responds and returns at least one model. The active conversation header and sidebar always show where prompts are going: provider, model, and endpoint or Codex account route.
 
 ## Crash And Shutdown Recovery
 
@@ -151,12 +168,14 @@ The **MCP config** button beside a credential copies both patterns with the corr
 
 Uses the normal Codex profile, authentication, model configuration, and MCP configuration from the host.
 
+Consiglio searches `PATH`, `CODEX_BIN`, npm's standard Windows shim directory, and common macOS/Linux CLI locations. This lets an app opened from Finder, Launchpad, or the Windows Start menu find Codex even when the desktop environment has a smaller `PATH` than an interactive terminal.
+
 ### Remote llama.cpp
 
 Consiglio configures Codex's OpenAI-compatible provider automatically. Supply the endpoint and model in **Providers**. A typical endpoint is:
 
 ```text
-http://192.168.1.243:8081
+http://192.168.1.50:8081
 ```
 
 The server must support the Responses API shape expected by Codex. The default placeholder API key is `llama.cpp`; replace it only when the server requires authentication.
@@ -190,11 +209,10 @@ Build all three application targets:
 npm run build
 ```
 
-Run TypeScript checks:
+Run the full local verification gate:
 
 ```bash
-./node_modules/.bin/tsc --noEmit -p tsconfig.json
-./node_modules/.bin/tsc --noEmit -p src/tsconfig.json
+npm run verify
 ```
 
 ## Packaging
@@ -207,6 +225,15 @@ npm run package:linux
 
 This produces an AppImage and a compressed Debian package. Linux is the primary desktop target.
 
+On Windows or macOS, use the corresponding host command:
+
+```text
+npm run package:win
+npm run package:mac
+```
+
+`npm run package:host` selects the correct command for the current operating system. Native packages must be built on their target operating system; the release workflow coordinates those host-native builds.
+
 GitHub Actions also builds release packages for all supported desktop platforms:
 
 | Platform | Release artifacts |
@@ -214,8 +241,9 @@ GitHub Actions also builds release packages for all supported desktop platforms:
 | Linux x64 | AppImage and `.deb` |
 | Windows x64 | NSIS installer and portable `.exe` |
 | macOS x64 | DMG and ZIP |
+| macOS arm64 | DMG and ZIP |
 
-Push a version tag matching `package.json`, such as `v0.1.0`, or run the **Release Consiglio** workflow manually with that version. GitHub publishes a release only after every platform package passes validation, and includes `SHA256SUMS.txt` for all artifacts.
+Push a version tag matching `package.json`, such as `v0.1.1`, or run the **Release Consiglio** workflow manually with that version. GitHub publishes a release only after every platform package passes validation, and includes `SHA256SUMS.txt` for all artifacts.
 
 ## Architecture
 

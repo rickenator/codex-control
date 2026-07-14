@@ -1,13 +1,19 @@
 {
   "name": "consiglio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A cross-platform desktop control plane for Codex-compatible agents.",
-  "author": "Rick Goldberg, Aniviza LLC Productions",
+  "author": {
+    "name": "Rick Goldberg, Aniviza LLC Productions",
+    "email": "rick@aniviza.com"
+  },
   "license": "Apache-2.0",
   "private": true,
   "main": "dist/main.js",
+  "desktopName": "Consiglio",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build:native": "node-gyp rebuild --directory native",
     "dev": "vite --config vite.renderer.config.ts",
     "start": "electron .",
     "dev:all": "npm run build && npm run start",
@@ -15,39 +21,29 @@
     "build:main": "vite build --config vite.main.config.ts",
     "build:preload": "vite build --config vite.preload.config.ts",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/tsconfig.json",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/*.test.mts",
+    "verify": "npm run typecheck && npm test && npm run build",
     "package": "electron-builder",
-    "package:appimage": "electron-builder --linux AppImage --x64 --publish never",
-    "package:deb": "bash scripts/package-deb.sh",
-    "package:linux": "npm run build && npm run package:appimage && npm run package:deb",
-    "package:mac": "electron-builder --mac dmg zip --x64 --publish never",
-    "package:win": "electron-builder --win nsis portable --x64 --publish never",
-    "package:all": "electron-builder --mac --win --linux"
+    "package:linux": "npm run verify && electron-builder --linux AppImage deb --publish never",
+    "package:mac": "npm run verify && electron-builder --mac dmg zip --publish never",
+    "package:win": "npm run verify && electron-builder --win nsis portable --publish never",
+    "package:host": "node scripts/package-host.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11",
-    "bonjour-service": "^1.4.3",
-    "node-addon-api": "^8.0.0",
-    "node-pty": "^1.0",
-    "xterm": "^5.3.0",
-    "xterm-addon-fit": "^0.8.0",
-    "xterm-addon-web-links": "^0.9.0"
+    "node-pty": "^1.0"
   },
   "devDependencies": {
-    "@electron-toolkit/tsconfig": "^1",
-    "@types/better-sqlite3": "^7",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4",
-    "concurrently": "^9",
-    "electron": "^33",
-    "electron-builder": "^25",
-    "node-gyp": "^11",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
     "react": "^19",
     "react-dom": "^19",
     "typescript": "^5",
-    "vite": "^6",
-    "wait-on": "^8"
+    "vite": "^6"
   },
   "build": {
     "appId": "com.rickenator.consiglio",
@@ -55,7 +51,7 @@
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "executableName": "consiglio",
     "electronDist": "node_modules/electron/dist",
-    "npmRebuild": false,
+    "npmRebuild": true,
     "linux": {
       "target": [
         "AppImage",
@@ -64,7 +60,8 @@
       "category": "Development",
       "icon": "build/icons/icon.png",
       "synopsis": "Desktop control plane for Codex CLI",
-      "description": "A native desktop control plane for Codex-compatible agents with session tracking, review tooling, provider health checks, and remote llama.cpp support."
+      "description": "A native desktop control plane for Codex-compatible agents with session tracking, review tooling, provider health checks, and remote llama.cpp support.",
+      "syncDesktopName": true
     },
     "deb": {
       "compression": "gz"

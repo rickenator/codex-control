@@ -15,8 +15,18 @@ concurrency:
 
 jobs:
   verify:
-    name: Type check and build
-    runs-on: ubuntu-24.04
+    name: Verify on ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-24.04
+          - name: Windows
+            runner: windows-2022
+          - name: macOS
+            runner: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -30,19 +40,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check Electron
-        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+      - name: Verify application
+        run: npm run verify
 
-      - name: Type check renderer
-        run: ./node_modules/.bin/tsc --noEmit -p src/tsconfig.json
-
-      - name: Build application
-        run: npm run build
-
-  linux-package:
-    name: Build Linux packages
+  package:
+    name: Package ${{ matrix.name }}
     needs: verify
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            command: package:linux
+            artifact: Consiglio-linux-x64
+          - name: Windows x64
+            runner: windows-2022
+            command: package:win
+            artifact: Consiglio-windows-x64
+          - name: macOS Intel
+            runner: macos-15-intel
+            command: package:mac
+            artifact: Consiglio-macos-x64
+          - name: macOS Apple Silicon
+            runner: macos-15
+            command: package:mac
+            artifact: Consiglio-macos-arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,21 +80,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build AppImage and Debian package
-        run: npm run package:linux
+      - name: Build packages
+        run: npm run ${{ matrix.command }}
 
       - name: Validate Linux packages
+        if: runner.os == 'Linux'
         run: |
           test -s dist/Consiglio-*.AppImage
           test -s dist/Consiglio-*.deb
           dpkg-deb --info dist/Consiglio-*.deb
 
-      - name: Upload Linux packages
+      - name: Validate macOS packages
+        if: runner.os == 'macOS'
+        run: |
+          test -s dist/Consiglio-*.dmg
+          test -s dist/Consiglio-*.zip
+
+      - name: Validate Windows packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem dist -Filter 'Consiglio-*.exe'
+          if ($packages.Count -lt 2) {
+            throw "Expected setup and portable Windows executables; found $($packages.Count)"
+          }
+          $packages | ForEach-Object {
+            if ($_.Length -eq 0) { throw "$($_.Name) is empty" }
+          }
+
+      - name: Upload packages
         uses: actions/upload-artifact@v6
         with:
-          name: Consiglio-linux-${{ github.sha }}
+          name: ${{ matrix.artifact }}-${{ github.sha }}
           path: |
             dist/Consiglio-*.AppImage
             dist/Consiglio-*.deb
+            dist/Consiglio-*.dmg
+            dist/Consiglio-*.zip
+            dist/Consiglio-*.exe
           if-no-files-found: error
           retention-days: 14

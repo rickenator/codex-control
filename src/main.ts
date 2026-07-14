@@ -1,9 +1,10 @@
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 
 import { discoverLlamaCppServers } from './main/lan-discovery';
+import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
 import path from 'path';
 import fs from 'fs';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import packageJson from '../package.json';
 import type { IPty } from 'node-pty';
 
@@ -22,10 +23,14 @@ interface SessionState {
   terminalBuffer: string;
   args: string[];
   env: NodeJS.ProcessEnv;
+  codexCommand: ExecutableCommand;
   codexThreadId?: string;
   jsonRemainder: string;
   lastStructuredError?: string;
   processedItemIds: Set<string>;
+  activePrompt?: string;
+  retryFreshAfterExit: boolean;
+  protocolRetryUsed: boolean;
 }
 
 
@@ -161,38 +166,44 @@ interface UpdateStatus {
 interface StartupStatus {
   appUpdate: UpdateStatus;
   checks: HealthCheckItem[];
+  providerSetup: ProviderSetupStatus;
 }
 
-const defaultRemoteLlamaCpp = {
-  baseUrl: 'http://192.168.1.243:8081',
-  model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
-  apiKey: 'llama.cpp',
-};
-
-const retiredRemoteLlamaCpp = {
-  baseUrl: 'http://192.168.1.240:8081',
-  model: 'Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL',
-};
+interface ProviderSetupStatus {
+  ready: boolean;
+  codexInstalled: boolean;
+  codexAuthenticated: boolean;
+  ollamaAvailable: boolean;
+  ollamaModels: string[];
+  lanAvailable: boolean;
+  lanProviderId?: string;
+  lanProviderName?: string;
+  lanEndpoint?: string;
+  lanModel?: string;
+  recommendedProvider?: 'default' | 'ollama';
+  recommendedModel?: string;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let storePath = '';
 let settingsPath = '';
 let secretsPath = '';
 let windowStatePath = '';
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 let appSettings: AppSettings = {
-  defaultProvider: 'remote_llamacpp',
+  defaultProvider: 'default',
   ollama: {
     baseUrl: 'http://localhost:11434',
     model: 'qwen2.5:32b-instruct-q4_K_M',
     apiKey: '',
   },
   remoteLlamaCpp: {
-    baseUrl: 'http://192.168.1.243:8081',
-    model: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+    baseUrl: '',
+    model: '',
     apiKey: 'llama.cpp',
   },
   lanProviders: [],
-  defaultModel: 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+  defaultModel: '',
   localProviderBehavior: {
     isolateProfile: true,
     enableWebSearch: true,
@@ -262,20 +273,78 @@ async function checkForAppUpdate(): Promise<UpdateStatus> {
   }
 }
 
-function codexVersionCheck(): HealthCheckItem {
+function codexReadiness() {
   const checkedAt = Date.now();
-  const codexPath = process.env.CODEX_BIN || 'codex';
+  const command = resolveCodexCommand();
+  const codexPath = command?.displayPath || process.env.CODEX_BIN || 'codex';
   try {
-    const version = execFileSync(codexPath, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-    return { id: 'codex-cli', label: 'Codex CLI', status: 'ok', message: version || `${codexPath} is installed.`, detail: codexPath, checkedAt };
+    if (!command) throw new Error('No Codex executable was found on PATH or in a standard installation directory.');
+    const version = execFileSync(command.executable, [...command.prefixArgs, '--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    let authenticated = false;
+    let loginMessage = 'Codex is installed but not signed in.';
+    const login = spawnSync(command.executable, [...command.prefixArgs, 'login', 'status'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const loginOutput = `${login.stdout || ''}\n${login.stderr || ''}`
+      .split(/\r?\n/)
+      .filter(line => line && !line.startsWith('WARNING:'))
+      .join('\n')
+      .trim();
+    authenticated = login.status === 0 && /logged in/i.test(loginOutput);
+    if (loginOutput) loginMessage = loginOutput;
+    return { installed: true, authenticated, version, loginMessage, codexPath, checkedAt };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Codex CLI was not found';
-    return { id: 'codex-cli', label: 'Codex CLI', status: 'error', message: `Codex CLI is unavailable: ${message}`, detail: codexPath, checkedAt };
+    return { installed: false, authenticated: false, version: '', loginMessage: message, codexPath, checkedAt };
   }
 }
 
-async function providerHealthChecks(): Promise<HealthCheckItem[]> {
-  const checks: HealthCheckItem[] = [codexVersionCheck()];
+async function ollamaReadiness() {
+  const baseUrl = (appSettings.ollama.baseUrl || 'http://localhost:11434')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/i, '');
+  try {
+    const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return { available: false, models: [] as string[], message: `Ollama returned ${response.status}.` };
+    const payload = await response.json() as { models?: Array<{ name?: string; model?: string }> };
+    const models = (payload.models || []).map(model => model.name || model.model || '').filter(Boolean);
+    return {
+      available: models.length > 0,
+      models,
+      message: models.length > 0 ? `${models.length} local model${models.length === 1 ? '' : 's'} ready.` : 'Ollama is running, but no models are installed.',
+    };
+  } catch {
+    return { available: false, models: [] as string[], message: 'Ollama was not detected on this computer.' };
+  }
+}
+
+async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; providerSetup: ProviderSetupStatus }> {
+  const codex = codexReadiness();
+  const ollama = await ollamaReadiness();
+  const checks: HealthCheckItem[] = [
+    {
+      id: 'codex-cli',
+      label: 'Codex CLI',
+      status: codex.installed ? 'ok' : 'error',
+      message: codex.installed ? codex.version || 'Codex CLI is installed.' : `Codex CLI is unavailable: ${codex.loginMessage}`,
+      detail: codex.codexPath,
+      checkedAt: codex.checkedAt,
+    },
+    {
+      id: 'codex-login',
+      label: 'Codex account',
+      status: codex.authenticated ? 'ok' : 'warning',
+      message: codex.authenticated ? codex.loginMessage : 'Sign in with `codex login`, or use a local Ollama model.',
+      checkedAt: codex.checkedAt,
+    },
+    {
+      id: 'provider-ollama',
+      label: 'Free local AI',
+      status: ollama.available ? 'ok' : 'warning',
+      message: ollama.message,
+      detail: appSettings.ollama.baseUrl,
+      checkedAt: Date.now(),
+    },
+  ];
   const checkedAt = Date.now();
   if (appSettings.remoteLlamaCpp.baseUrl) {
     const result = await testRemoteLlamaCpp(appSettings.remoteLlamaCpp.baseUrl, appSettings.remoteLlamaCpp.apiKey, appSettings.remoteLlamaCpp.model);
@@ -288,6 +357,7 @@ async function providerHealthChecks(): Promise<HealthCheckItem[]> {
       checkedAt,
     });
   }
+  let readyLanProvider: LanProvider | undefined;
   for (const provider of appSettings.lanProviders) {
     const baseUrl = lanProviderBaseUrl(provider);
     const result = await testRemoteLlamaCpp(baseUrl, provider.apiKey, provider.model);
@@ -299,13 +369,43 @@ async function providerHealthChecks(): Promise<HealthCheckItem[]> {
       detail: baseUrl,
       checkedAt,
     });
+    if (!readyLanProvider && result.ok && provider.model.trim()) readyLanProvider = provider;
   }
-  return checks;
+  const recommendedProvider = codex.installed && codex.authenticated
+    ? 'default' as const
+    : codex.installed && ollama.available
+      ? 'ollama' as const
+      : undefined;
+  return {
+    checks,
+    providerSetup: {
+      ready: Boolean(recommendedProvider),
+      codexInstalled: codex.installed,
+      codexAuthenticated: codex.authenticated,
+      ollamaAvailable: ollama.available,
+      ollamaModels: ollama.models,
+      lanAvailable: Boolean(readyLanProvider),
+      lanProviderId: readyLanProvider?.id,
+      lanProviderName: readyLanProvider?.name,
+      lanEndpoint: readyLanProvider ? lanProviderBaseUrl(readyLanProvider) : undefined,
+      lanModel: readyLanProvider?.model,
+      recommendedProvider,
+      recommendedModel: recommendedProvider === 'ollama' ? ollama.models[0] : undefined,
+    },
+  };
 }
 
 async function runStartupChecks(): Promise<StartupStatus> {
-  const [appUpdate, checks] = await Promise.all([checkForAppUpdate(), providerHealthChecks()]);
-  return { appUpdate, checks };
+  const appUpdatePromise = checkForAppUpdate();
+  let readiness = await providerReadiness();
+  if (!readiness.providerSetup.ready && readiness.providerSetup.codexInstalled) {
+    await discoverAndSaveLanProviders();
+    readiness = await providerReadiness();
+  } else if (readiness.providerSetup.codexInstalled) {
+    void discoverAndSaveLanProviders().catch(error => console.error('Background LAN discovery failed:', error));
+  }
+  const appUpdate = await appUpdatePromise;
+  return { appUpdate, ...readiness };
 }
 
 function createWindow() {
@@ -319,6 +419,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -331,6 +432,15 @@ function createWindow() {
   mainWindow.on('close', () => {
     saveWindowState(mainWindow);
   });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (currentUrl && url !== currentUrl) event.preventDefault();
+  });
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [];
     if (params.selectionText) {
@@ -576,12 +686,6 @@ function initSettings() {
           enableMultiAgent: saved.localProviderBehavior?.enableMultiAgent === true,
         },
       };
-      if (
-        appSettings.remoteLlamaCpp.baseUrl === retiredRemoteLlamaCpp.baseUrl
-        && appSettings.remoteLlamaCpp.model === retiredRemoteLlamaCpp.model
-      ) {
-        appSettings.remoteLlamaCpp = { ...defaultRemoteLlamaCpp };
-      }
     }
   } catch (error: unknown) {
     console.error('Could not load settings:', error);
@@ -722,13 +826,21 @@ function recordStructuredError(state: SessionState, message: string) {
   const clean = decodeStructuredError(message);
   if (!clean || clean === state.lastStructuredError) return;
   state.lastStructuredError = clean;
-  if (/output of tool call should be ['"]?input text/i.test(clean)) {
+  const incompatibleToolOutput = /output of tool call should be ['"]?input text/i.test(clean);
+  if (incompatibleToolOutput) {
     state.codexThreadId = undefined;
     const record = records.get(state.id);
     if (record) {
       record.codexThreadId = undefined;
       record.updated_at = Date.now();
       saveStore();
+    }
+    const canRetryFresh = state.provider === 'remote_llamacpp' || state.provider === 'lan' || state.provider === 'ollama';
+    if (canRetryFresh && state.activePrompt && !state.protocolRetryUsed) {
+      state.protocolRetryUsed = true;
+      state.retryFreshAfterExit = true;
+      recordEvent(state.id, 'system', 'The local provider rejected the saved tool state. Retrying this message on a fresh thread.');
+      return;
     }
   }
   recordEvent(state.id, 'error', clean);
@@ -889,6 +1001,35 @@ async function fetchModels(baseUrl: string, apiKey?: string): Promise<{ id: stri
   }
 }
 
+async function discoverAndSaveLanProviders() {
+  const discovered = await discoverLlamaCppServers();
+  const existingKeys = new Set(appSettings.lanProviders.map(provider => `${provider.host}:${provider.port}`));
+  let added = 0;
+  for (const server of discovered) {
+    const key = `${server.host}:${server.port}`;
+    if (existingKeys.has(key)) continue;
+    const baseUrl = `http://${server.host}:${server.port}`;
+    const models = await fetchModels(baseUrl, 'llama.cpp');
+    const model = models[0]?.id?.trim();
+    if (!model) continue;
+    appSettings.lanProviders.push({
+      id: `lan-${Date.now()}-${added}`,
+      name: server.name,
+      host: server.host,
+      port: server.port,
+      model,
+      apiKey: 'llama.cpp',
+    });
+    existingKeys.add(key);
+    added += 1;
+  }
+  if (added > 0) {
+    saveSettings();
+    mainWindow?.webContents.send('settings:changed', appSettings);
+  }
+  return { found: discovered.length, added, providers: appSettings.lanProviders };
+}
+
 function getLanProvider(id?: string): LanProvider | null {
   if (!id || appSettings.lanProviders.length === 0) return null;
   const found = appSettings.lanProviders.find(p => p.id === id);
@@ -988,12 +1129,30 @@ function gitApplyHunk(repository: string, filePath: string, hunkId: number, reve
 
 function startSession(options: SessionOptions) {
   const provider = options.provider || appSettings.defaultProvider;
-  const repository = path.resolve(options.repository || process.cwd());
+  const repository = path.resolve(options.repository || defaultWorkspacePath());
   if (!fs.statSync(repository).isDirectory()) {
     throw new Error(`Workspace is not a directory: ${repository}`);
   }
   const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   return launchSession(sessionId, repository, options.branch || getBranch(repository), provider, options, false);
+}
+
+function defaultWorkspacePath() {
+  if (!app.isPackaged) return process.cwd();
+  const candidates = [
+    path.join(app.getPath('documents'), 'Consiglio Workspace'),
+    path.join(app.getPath('userData'), 'workspace'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.accessSync(candidate, fs.constants.R_OK | fs.constants.W_OK);
+      return candidate;
+    } catch {
+      // Try the application-data fallback when the documents directory is protected.
+    }
+  }
+  throw new Error('Consiglio could not create a writable default workspace. Choose a folder and try again.');
 }
 
 function launchSession(
@@ -1004,7 +1163,10 @@ function launchSession(
   options: SessionOptions,
   isReconnect: boolean,
 ) {
-  const codexPath = options.codexPath || process.env.CODEX_BIN || 'codex';
+  const codexCommand = resolveCodexCommand({ requested: options.codexPath });
+  if (!codexCommand) {
+    throw new Error('Codex CLI was not found. Install Codex, add it to PATH, or set CODEX_BIN to its executable path.');
+  }
   const previousRecord = records.get(sessionId);
   const args: string[] = [];
   const env = { ...process.env };
@@ -1133,10 +1295,14 @@ function launchSession(
     terminalBuffer: '',
     args,
     env,
+    codexCommand,
     codexThreadId: options.codexThreadId,
     jsonRemainder: '',
     lastStructuredError: undefined,
     processedItemIds: new Set(),
+    activePrompt: undefined,
+    retryFreshAfterExit: false,
+    protocolRetryUsed: false,
   };
   sessions.set(sessionId, state);
   records.set(sessionId, {
@@ -1216,13 +1382,21 @@ function sendSessionPrompt(sessionId: string, input: string) {
     return true;
   }
 
+  state.activePrompt = prompt;
+  state.retryFreshAfterExit = false;
+  state.protocolRetryUsed = false;
+  launchPromptProcess(state, prompt);
+  return true;
+}
+
+function launchPromptProcess(state: SessionState, prompt: string) {
   const commandArgs = state.codexThreadId
     ? ['exec', 'resume', '--json', '--skip-git-repo-check', ...state.args, state.codexThreadId, prompt]
     : ['exec', '--json', '--skip-git-repo-check', ...state.args, prompt];
   state.jsonRemainder = '';
   state.lastStructuredError = undefined;
   state.processedItemIds.clear();
-  const terminal = pty.spawn(process.env.CODEX_BIN || 'codex', commandArgs, {
+  const terminal = pty.spawn(state.codexCommand.executable, [...state.codexCommand.prefixArgs, ...commandArgs], {
     name: 'xterm-256color',
     cols: 120,
     rows: 36,
@@ -1230,19 +1404,24 @@ function sendSessionPrompt(sessionId: string, input: string) {
     env: state.env,
   });
   state.pty = terminal;
-  terminal.onData((data: string) => terminalOutput(sessionId, data));
+  terminal.onData((data: string) => terminalOutput(state.id, data));
   terminal.onExit(({ exitCode }: { exitCode: number }) => {
     state.pty = null;
     if (state.jsonRemainder.trim()) {
       consumeExecEvents(state, `${state.jsonRemainder}\n`);
       state.jsonRemainder = '';
     }
+    if (state.retryFreshAfterExit && state.activePrompt) {
+      state.retryFreshAfterExit = false;
+      launchPromptProcess(state, state.activePrompt);
+      return;
+    }
     if (exitCode !== 0 && !state.lastStructuredError) {
       const detail = terminalFailureDetail(state.terminalBuffer);
-      recordEvent(sessionId, 'error', detail || `Codex stopped with code ${exitCode}. Check the provider settings and try again.`);
+      recordEvent(state.id, 'error', detail || `Codex stopped with code ${exitCode}. Check the provider settings and try again.`);
     }
+    state.activePrompt = undefined;
   });
-  return true;
 }
 
 function terminalFailureDetail(buffer: string) {
@@ -1437,7 +1616,7 @@ ipcMain.handle('secrets:upsert', (_event, input: SecretInput) => upsertSecret(in
 ipcMain.handle('secrets:remove', (_event, id: string) => removeSecret(id));
 ipcMain.handle('system:startup-checks', () => runStartupChecks());
 ipcMain.handle('system:check-updates', () => checkForAppUpdate());
-ipcMain.handle('system:check-providers', () => providerHealthChecks());
+ipcMain.handle('system:check-providers', async () => (await providerReadiness()).checks);
 ipcMain.handle('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
   appSettings = {
     defaultProvider: normalizeProvider(nextSettings.defaultProvider),
@@ -1478,7 +1657,7 @@ ipcMain.handle('lan:add-provider', (_event, provider: LanProvider) => {
 ipcMain.handle('lan:remove-provider', (_event, id: string) => {
   appSettings.lanProviders = appSettings.lanProviders.filter(p => p.id !== id);
   if (appSettings.defaultProvider === 'lan') {
-    appSettings.defaultProvider = 'remote_llamacpp';
+    appSettings.defaultProvider = 'default';
   }
   saveSettings();
   mainWindow?.webContents.send('settings:changed', appSettings);
@@ -1497,27 +1676,7 @@ ipcMain.handle('lan:update-provider', (_event, updated: LanProvider) => {
 
 ipcMain.handle('lan:discover', async () => {
   try {
-    const discovered = await discoverLlamaCppServers();
-    // Merge with existing providers (avoid duplicates by host:port)
-    const existingKeys = new Set(appSettings.lanProviders.map(p => `${p.host}:${p.port}`));
-    let added = 0;
-    for (const server of discovered) {
-      if (!existingKeys.has(`${server.host}:${server.port}`)) {
-        appSettings.lanProviders.push({
-          id: `lan-${Date.now()}-${added}`,
-          name: server.name,
-          host: server.host,
-          port: server.port,
-          model: '',
-          apiKey: '',
-        });
-        existingKeys.add(`${server.host}:${server.port}`);
-        added += 1;
-      }
-    }
-    saveSettings();
-    mainWindow?.webContents.send('settings:changed', appSettings);
-    return { found: discovered.length, added, providers: appSettings.lanProviders };
+    return await discoverAndSaveLanProviders();
   } catch (error: unknown) {
     console.error('LAN discovery failed:', error);
     return { found: 0, added: 0, error: String(error), providers: appSettings.lanProviders };
@@ -1567,16 +1726,31 @@ ipcMain.handle('ui:open-path', async (_event, targetPath: string) => {
   }
 });
 
-app.whenReady().then(() => {
-  initStore();
-  initSettings();
-  initSecrets();
-  Menu.setApplicationMenu(buildApplicationMenu());
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
-});
+
+  app.whenReady().then(() => {
+    app.setAppUserModelId('com.rickenator.consiglio');
+    initStore();
+    initSettings();
+    initSecrets();
+    Menu.setApplicationMenu(buildApplicationMenu());
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   for (const id of sessions.keys()) stopSession(id);
@@ -1585,7 +1759,24 @@ app.on('window-all-closed', () => {
 });
 
 function buildApplicationMenu() {
-  return Menu.buildFromTemplate([
+  const template: Electron.MenuItemConstructorOptions[] = [];
+  if (process.platform === 'darwin') {
+    template.push({
+      label: 'Consiglio',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    });
+  }
+  template.push(
     {
       label: 'File',
       submenu: [
@@ -1595,7 +1786,23 @@ function buildApplicationMenu() {
           click: () => mainWindow?.webContents.send('ui:new-session'),
         },
         { type: 'separator' },
-        { role: 'quit', label: 'Quit' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit', label: 'Quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        ...(process.platform === 'darwin'
+          ? [{ role: 'pasteAndMatchStyle' as const }, { role: 'delete' as const }]
+          : [{ role: 'delete' as const }]),
+        { type: 'separator' },
+        { role: 'selectAll' },
       ],
     },
     {
@@ -1611,5 +1818,16 @@ function buildApplicationMenu() {
         { role: 'togglefullscreen', label: 'Toggle Full Screen' },
       ],
     },
-  ]);
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(process.platform === 'darwin'
+          ? [{ type: 'separator' as const }, { role: 'front' as const }]
+          : [{ role: 'close' as const }]),
+      ],
+    },
+  );
+  return Menu.buildFromTemplate(template);
 }

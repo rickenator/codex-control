@@ -106,6 +106,20 @@ interface UpdateStatus {
 interface StartupStatus {
   appUpdate: UpdateStatus;
   checks: HealthCheckItem[];
+  providerSetup: {
+    ready: boolean;
+    codexInstalled: boolean;
+    codexAuthenticated: boolean;
+    ollamaAvailable: boolean;
+    ollamaModels: string[];
+    lanAvailable: boolean;
+    lanProviderId?: string;
+    lanProviderName?: string;
+    lanEndpoint?: string;
+    lanModel?: string;
+    recommendedProvider?: 'default' | 'ollama';
+    recommendedModel?: string;
+  };
 }
 
 interface CodexAPI {
@@ -115,6 +129,11 @@ interface CodexAPI {
     branch?: string;
     provider?: CodexProvider;
     remoteLlamaCpp?: {
+      baseUrl?: string;
+      model?: string;
+      apiKey?: string;
+    };
+    ollama?: {
       baseUrl?: string;
       model?: string;
       apiKey?: string;
@@ -187,6 +206,7 @@ interface SessionRecord {
   provider?: CodexProvider;
   model?: string;
   baseUrl?: string;
+  selectedLanProviderId?: string;
   status: 'running' | 'stopped' | 'failed' | 'completed';
   created_at: number;
   updated_at: number;

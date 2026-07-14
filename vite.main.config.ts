@@ -11,7 +11,7 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: ['electron', 'better-sqlite3', 'node-pty', 'fs', 'path', 'child_process'],
+      external: ['electron', 'node-pty', 'fs', 'path', 'child_process', 'net', 'os'],
     },
   },
 });

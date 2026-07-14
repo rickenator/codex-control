@@ -56,6 +56,7 @@ interface Props {
       enableMultiAgent: boolean;
     };
   };
+  connectionLabel: string;
   onSettingsChange: (settings: Props['settings']) => void;
 }
 
@@ -67,6 +68,7 @@ export default function SessionList({
   onPickRepository,
   onDeleteSession,
   settings,
+  connectionLabel,
 }: Props) {
   const [showNewTask, setShowNewTask] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -169,9 +171,9 @@ export default function SessionList({
         })}
       </div>
 
-      <div className="codex-sidebar-provider" title={providerLabel(settings.defaultProvider)}>
+      <div className="codex-sidebar-provider" title={connectionLabel || providerLabel(settings.defaultProvider)}>
         <span className="codex-session-dot is-running" aria-hidden="true" />
-        {providerLabel(settings.defaultProvider)}
+        <span className="codex-sidebar-provider-label">{connectionLabel || providerLabel(settings.defaultProvider)}</span>
       </div>
 
       {showNewTask && (
