@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 import { resolveCodexCommand } from './platform';
 
@@ -126,7 +126,7 @@ export const runCommandProbe: CommandRunner = request => new Promise(resolve => 
     resolve(result);
   };
 
-  let child: ChildProcessWithoutNullStreams;
+  let child: ReturnType<typeof spawn>;
   try {
     child = spawn(request.command, request.args, {
       env: request.env,
@@ -149,10 +149,10 @@ export const runCommandProbe: CommandRunner = request => new Promise(resolve => 
     finish({ exitCode: null, stdout, stderr, timedOut: true });
   }, request.timeoutMs);
 
-  child.stdout.on('data', chunk => {
+  child.stdout?.on('data', chunk => {
     stdout = appendLimited(stdout, chunk);
   });
-  child.stderr.on('data', chunk => {
+  child.stderr?.on('data', chunk => {
     stderr = appendLimited(stderr, chunk);
   });
   child.on('error', error => {
