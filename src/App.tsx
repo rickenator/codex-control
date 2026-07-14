@@ -479,7 +479,7 @@ export default function App() {
             kind: 'success',
             message: refreshed.providerSetup.recommendedProvider === 'ollama'
               ? `Started with free local model ${refreshed.providerSetup.recommendedModel}.`
-              : 'Started with your Codex account.',
+              : 'Started with your AI account.',
           });
           return;
         }
@@ -686,7 +686,7 @@ export default function App() {
               <span>
                 <strong style={{ color: '#f0f6fc' }}>Isolate local-provider sessions</strong>
                 <span className="codex-help" style={{ display: 'block', marginTop: 2 }}>
-                  Keeps normal Codex MCP servers and profile settings out of llama.cpp/LAN sessions.
+                  Keeps normal AI MCP servers and profile settings out of llama.cpp/LAN sessions.
                 </span>
               </span>
             </label>
@@ -702,7 +702,7 @@ export default function App() {
               <span>
                 <strong style={{ color: '#f0f6fc' }}>Enable web search</strong>
                 <span className="codex-help" style={{ display: 'block', marginTop: 2 }}>
-                  Starts local-provider sessions with Codex live web search enabled.
+                  Starts local-provider sessions with live web search enabled.
                 </span>
               </span>
             </label>
@@ -1126,17 +1126,17 @@ function describeConnection(session: SessionRecord, settings: AppSettings) {
     return [provider?.name || 'Network AI', model, endpoint].filter(Boolean).join(' · ');
   }
   if (session.provider === 'gpt56') return `OpenAI cloud · ${model || 'gpt-5.6'} · Codex account`;
-  return ['OpenAI cloud', model || 'model selected by Codex', 'Codex account'].join(' · ');
+  return ['OpenAI cloud', model || 'model selected by AI', 'AI account'].join(' · ');
 }
 
 function summarizeHealth(status: StartupStatus | null) {
-  if (!status) return { message: 'Checking Consiglio releases, Codex CLI, and provider interfaces…', color: '#58a6ff', borderColor: 'rgba(88, 166, 255, 0.28)' };
+  if (!status) return { message: 'Checking Consiglio releases and provider interfaces…', color: '#58a6ff', borderColor: 'rgba(88, 166, 255, 0.28)' };
   if (status.appUpdate.updateAvailable) return { message: status.appUpdate.message, color: '#d29922', borderColor: 'rgba(210, 153, 34, 0.36)' };
   const hasError = status.checks.some(check => check.status === 'error');
   if (hasError) return { message: 'Some startup checks need attention before sessions will be reliable.', color: '#f85149', borderColor: 'rgba(248, 81, 73, 0.36)' };
   const hasWarning = status.checks.some(check => check.status === 'warning') || status.appUpdate.status === 'warning';
   if (hasWarning) return { message: 'Consiglio started, but one or more provider/update checks could not be verified.', color: '#d29922', borderColor: 'rgba(210, 153, 34, 0.36)' };
-  return { message: 'Consiglio, Codex CLI, and configured provider interfaces look ready.', color: '#3fb950', borderColor: 'rgba(63, 185, 80, 0.36)' };
+  return { message: 'Consiglio and configured provider interfaces look ready.', color: '#3fb950', borderColor: 'rgba(63, 185, 80, 0.36)' };
 }
 
 function HealthPill({ label, status, message }: { label: string; status: HealthCheckItem['status'] | UpdateStatus['status']; message: string }) {
@@ -1173,7 +1173,7 @@ function ProviderSetupScreen({
           <span className="provider-setup-kicker">FIRST RUN</span>
           <h1>{checking ? 'Checking your AI setup' : 'Choose how Consiglio thinks'}</h1>
           <p>
-            Consiglio checks your Codex account, free local Ollama models, and compatible AI servers on your network.
+            Consiglio checks your AI account, free local Ollama models, and compatible AI servers on your network.
             It will only create a task after a provider responds successfully.
           </p>
         </div>
@@ -1184,7 +1184,7 @@ function ProviderSetupScreen({
               <span>Codex</span>
               <span className="provider-setup-tag">Recommended</span>
             </div>
-            <p>Use your existing Codex authentication, models, configuration, and MCP servers.</p>
+            <p>Use your existing AI authentication, models, configuration, and MCP servers.</p>
             <div className="provider-setup-status">
               {setup?.codexAuthenticated
                 ? 'Ready and signed in'
@@ -1231,7 +1231,7 @@ function ProviderSetupScreen({
         </div>
 
         <div className="provider-setup-actions">
-          <span>{checking ? 'Looking for Codex and local models...' : 'Already set up? Check again and Consiglio will start automatically.'}</span>
+          <span>{checking ? 'Looking for AI providers and local models...' : 'Already set up? Check again and Consiglio will start automatically.'}</span>
           <button className="codex-button codex-button-primary" onClick={onRefresh} disabled={checking || !onRefresh}>
             {checking ? 'Checking...' : 'Check again'}
           </button>

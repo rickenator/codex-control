@@ -18,7 +18,7 @@ interface Props {
 
 const eventLabels: Record<string, string> = {
   prompt: 'You',
-  response: 'Codex',
+  response: 'Agent',
   tool_call: 'Working',
   approval_request: 'Approval required',
   diff: 'Changes',
