@@ -11,7 +11,18 @@ npm ci
 npm run verify
 ```
 
-The pull-request CI must pass on Linux, Windows, and macOS. This includes type checking, unit tests, renderer/main/preload builds, mobile builds, and package generation.
+The pull-request CI must pass on Linux, Windows, and macOS. Desktop CI reports type checking, tests, and builds as separate steps so failures are attributable. The complete workflow also builds the mobile clients and generates platform packages.
+
+Current automated discussion coverage includes:
+
+- direct adapter responses;
+- event-streamed adapter responses;
+- mixed direct/streamed round-robin turns;
+- streamed synthesis;
+- repeated user messages with a reset turn budget;
+- rejection of overlapping user messages.
+
+Automated fake-adapter tests validate orchestration only. They do not prove that an external CLI's flags, output parser, approval flow, or authentication behavior is correct.
 
 ## Real-agent validation matrix
 
