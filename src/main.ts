@@ -17,6 +17,12 @@ import type { IPty } from 'node-pty';
 
 const pty = require('node-pty') as typeof import('node-pty');
 
+// Disable GPU compositing to avoid crashes in environments where the GPU
+// process cannot initialize (e.g. headless X11, containers, PTY sessions).
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("disable-features", "VizDisplayCompositor");
+
 protocol.registerSchemesAsPrivileged([{
   scheme: APP_PROTOCOL,
   privileges: {
