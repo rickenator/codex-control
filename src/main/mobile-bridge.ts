@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { agentApprovalRouter, type AgentApprovalRouter } from './approval-router';
+import { agentApprovalRouter, type AgentApprovalRouter } from './approval-router.ts';
 
 type JsonValue = unknown;
 
@@ -168,7 +168,7 @@ export async function startMobileBridge(options: MobileBridgeOptions): Promise<M
   });
   server.unref();
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Could not determine the mobile bridge address');
+  if (!address || typeof address === 'string') throw new Error('Could not determine mobile bridge address');
   return {
     host,
     port: address.port,
