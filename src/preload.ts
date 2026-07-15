@@ -1,23 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-async function getLivePendingApprovals(sessionId?: string): Promise<ApprovalRecord[]> {
-  const stored = await ipcRenderer.invoke('approval:get-pending', sessionId) as ApprovalRecord[];
-  const liveIds = new Set(
-    await ipcRenderer.invoke('agents:pending-approval-ids', sessionId) as string[],
-  );
-
-  const stale = stored.filter(approval => !liveIds.has(approval.id));
-  await Promise.all(stale.map(approval => ipcRenderer.invoke('approval:reject', approval.id)));
-  return stored.filter(approval => liveIds.has(approval.id));
+function getLivePendingApprovals(sessionId?: string): Promise<ApprovalRecord[]> {
+  return ipcRenderer.invoke('agents:pending-approvals', sessionId);
 }
 
 async function resolveApprovalDecision(approvalId: string, approved: boolean): Promise<boolean> {
   const resolution = await ipcRenderer.invoke('agents:resolve-approval', { approvalId, approved }) as {
     ok?: boolean;
   };
-  if (!resolution?.ok) return false;
-
-  return ipcRenderer.invoke(approved ? 'approval:approve' : 'approval:reject', approvalId);
+  return resolution?.ok === true;
 }
 
 contextBridge.exposeInMainWorld('codexApi', {
