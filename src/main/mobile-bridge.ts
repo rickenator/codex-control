@@ -22,7 +22,7 @@ export interface MobileBridgeOptions {
   host?: string;
   port?: number;
   allowedOrigins?: string[];
-  approvalRouter?: Pick<AgentApprovalRouter, 'pendingIds' | 'resolve'>;
+  approvalRouter?: Pick<AgentApprovalRouter, 'pendingApprovals' | 'resolve'>;
 }
 
 export interface MobileBridgeHandle {
@@ -78,15 +78,6 @@ async function readJson(request: IncomingMessage) {
 
 function pathSegments(url: URL) {
   return url.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment));
-}
-
-function approvalRecords(value: JsonValue): Array<{ id: string; sessionId?: string }> {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is { id: string; sessionId?: string } => (
-    Boolean(entry)
-    && typeof entry === 'object'
-    && typeof (entry as { id?: unknown }).id === 'string'
-  ));
 }
 
 export async function startMobileBridge(options: MobileBridgeOptions): Promise<MobileBridgeHandle> {
@@ -149,21 +140,17 @@ export async function startMobileBridge(options: MobileBridgeOptions): Promise<M
       }
       if (request.method === 'GET' && url.pathname === '/v1/approvals') {
         const sessionId = url.searchParams.get('sessionId') || undefined;
-        const stored = approvalRecords(await options.actions.getPendingApprovals(sessionId));
-        const liveIds = new Set(approvalRouter.pendingIds(sessionId));
-        const stale = stored.filter(approval => !liveIds.has(approval.id));
-        await Promise.all(stale.map(approval => options.actions.rejectCommand(approval.id)));
-        return respond(response, 200, stored.filter(approval => liveIds.has(approval.id)), origin);
+        return respond(response, 200, approvalRouter.pendingApprovals(sessionId), origin);
       }
       if (request.method === 'POST' && segments[0] === 'v1' && segments[1] === 'approvals' && segments[3] === 'approve') {
         const resolution = await approvalRouter.resolve(segments[2], true);
         if (!resolution.ok) return respond(response, 409, { ok: false, error: resolution.reason }, origin);
-        return respond(response, 200, { ok: await options.actions.approveCommand(segments[2]) }, origin);
+        return respond(response, 200, { ok: true }, origin);
       }
       if (request.method === 'POST' && segments[0] === 'v1' && segments[1] === 'approvals' && segments[3] === 'reject') {
         const resolution = await approvalRouter.resolve(segments[2], false);
         if (!resolution.ok) return respond(response, 409, { ok: false, error: resolution.reason }, origin);
-        return respond(response, 200, { ok: await options.actions.rejectCommand(segments[2]) }, origin);
+        return respond(response, 200, { ok: true }, origin);
       }
       return respond(response, 404, { error: 'Not found' }, origin);
     } catch (error) {
@@ -181,7 +168,7 @@ export async function startMobileBridge(options: MobileBridgeOptions): Promise<M
   });
   server.unref();
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Could not determine mobile bridge address');
+  if (!address || typeof address === 'string') throw new Error('Could not determine the mobile bridge address');
   return {
     host,
     port: address.port,
