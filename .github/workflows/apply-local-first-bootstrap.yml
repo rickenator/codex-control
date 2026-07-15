@@ -26,6 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'Received fragment hashes:'
+          sha256sum scripts/.bootstrap-v2-part-*
           sha256sum -c scripts/.bootstrap-v2-manifest
           cat scripts/.bootstrap-v2-part-* > /tmp/apply-local-first-bootstrap.b64
           echo '68136c2784ea57e7a9abc3b5bd850cfaaf6208f62048b856b7d2067f0614fe4e  /tmp/apply-local-first-bootstrap.b64' | sha256sum -c -
