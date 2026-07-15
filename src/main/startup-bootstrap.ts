@@ -125,27 +125,34 @@ function executableExists(candidate: string) {
   }
 }
 
-export function managedAgentHome(userDataPath: string) {
-  return path.join(userDataPath, 'agents');
+function pathForPlatform(platform: NodeJS.Platform) {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+export function managedAgentHome(userDataPath: string, platform: NodeJS.Platform = process.platform) {
+  return pathForPlatform(platform).join(userDataPath, 'agents');
 }
 
 export function managedCodexExecutable(userDataPath: string, platform: NodeJS.Platform = process.platform) {
-  const base = path.join(managedAgentHome(userDataPath), 'codex', 'node_modules', '.bin');
-  return path.join(base, platform === 'win32' ? 'codex.cmd' : 'codex');
+  const platformPath = pathForPlatform(platform);
+  const base = platformPath.join(managedAgentHome(userDataPath, platform), 'codex', 'node_modules', '.bin');
+  return platformPath.join(base, platform === 'win32' ? 'codex.cmd' : 'codex');
 }
 
 export function managedOpenInterpreterExecutable(userDataPath: string, platform: NodeJS.Platform = process.platform) {
-  const venv = path.join(managedAgentHome(userDataPath), 'open-interpreter');
+  const platformPath = pathForPlatform(platform);
+  const venv = platformPath.join(managedAgentHome(userDataPath, platform), 'open-interpreter');
   return platform === 'win32'
-    ? path.join(venv, 'Scripts', 'interpreter.exe')
-    : path.join(venv, 'bin', 'interpreter');
+    ? platformPath.join(venv, 'Scripts', 'interpreter.exe')
+    : platformPath.join(venv, 'bin', 'interpreter');
 }
 
 function managedOpenInterpreterPython(userDataPath: string, platform: NodeJS.Platform) {
-  const venv = path.join(managedAgentHome(userDataPath), 'open-interpreter');
+  const platformPath = pathForPlatform(platform);
+  const venv = platformPath.join(managedAgentHome(userDataPath, platform), 'open-interpreter');
   return platform === 'win32'
-    ? path.join(venv, 'Scripts', 'python.exe')
-    : path.join(venv, 'bin', 'python');
+    ? platformPath.join(venv, 'Scripts', 'python.exe')
+    : platformPath.join(venv, 'bin', 'python');
 }
 
 export function configureManagedAgentEnvironment(
@@ -154,7 +161,7 @@ export function configureManagedAgentEnvironment(
   platform: NodeJS.Platform = process.platform,
   fileExists: (candidate: string) => boolean = executableExists,
 ) {
-  const home = managedAgentHome(userDataPath);
+  const home = managedAgentHome(userDataPath, platform);
   env.CONSIGLIO_AGENT_HOME = home;
   const codex = managedCodexExecutable(userDataPath, platform);
   const interpreter = managedOpenInterpreterExecutable(userDataPath, platform);
@@ -201,7 +208,8 @@ async function installCodex(
   runner: InstallCommandRunner,
   fileExists: (candidate: string) => boolean,
 ): Promise<AgentInstallResult> {
-  const prefix = path.join(managedAgentHome(userDataPath), 'codex');
+  const platformPath = pathForPlatform(platform);
+  const prefix = platformPath.join(managedAgentHome(userDataPath, platform), 'codex');
   fs.mkdirSync(prefix, { recursive: true });
   const npmProbe = await probe(runner, platform === 'win32' ? 'npm.cmd' : 'npm', ['--version'], env);
   if (npmProbe.exitCode === 0 && !npmProbe.timedOut) {
@@ -233,8 +241,8 @@ async function installCodex(
     if (result.exitCode === 0) {
       const userHome = env.HOME?.trim() || '';
       const executable = [
-        userHome ? path.join(userHome, '.local', 'bin', 'codex') : '',
-        userHome ? path.join(userHome, 'bin', 'codex') : '',
+        userHome ? path.posix.join(userHome, '.local', 'bin', 'codex') : '',
+        userHome ? path.posix.join(userHome, 'bin', 'codex') : '',
       ].find(candidate => candidate && fileExists(candidate));
       if (executable) env.CODEX_BIN = executable;
       return {
@@ -271,7 +279,8 @@ async function installOpenInterpreter(
     };
   }
 
-  const venv = path.join(managedAgentHome(userDataPath), 'open-interpreter');
+  const platformPath = pathForPlatform(platform);
+  const venv = platformPath.join(managedAgentHome(userDataPath, platform), 'open-interpreter');
   fs.mkdirSync(path.dirname(venv), { recursive: true });
   const create = await runner({
     command: python.command,
