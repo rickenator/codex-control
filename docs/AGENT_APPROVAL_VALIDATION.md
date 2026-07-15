@@ -13,6 +13,8 @@ Issue #20 routes approve and reject decisions to the exact adapter session that 
 
 The authenticated mobile bridge is tested to verify that it queries the live router, sends the process decision before returning success, and returns HTTP 409 for replayed decisions. Desktop IPC uses the same router and trusted-renderer checks.
 
+The pull request CI matrix separately verifies type checking, Node tests, desktop builds, mobile builds, and packaged application internals. A green CI run validates integration and packaging, but it does not replace the real-agent protocol gate below.
+
 ## Real-agent validation gate
 
 Real CLI validation was not available in the GitHub connector environment used to implement this change. Before removing the draft status, run each installed preview adapter against a harmless operation that triggers confirmation and record:
