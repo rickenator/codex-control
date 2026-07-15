@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/local-first-startup-bootstrap
+  pull_request:
+    branches:
+      - slave
 
 permissions:
   contents: write
