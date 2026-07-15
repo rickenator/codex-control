@@ -1,5 +1,24 @@
 type CodexProvider = 'default' | 'remote_llamacpp' | 'gpt56' | 'lan' | 'ollama';
 
+type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
+type AgentReadinessState = 'ready' | 'configuration-required' | 'missing' | 'timeout' | 'error';
+type AgentConfigurationState = 'ready' | 'required' | 'not-required' | 'unknown';
+
+interface AgentReadiness {
+  id: AgentId;
+  name: string;
+  installed: boolean;
+  authenticated: boolean | null;
+  configuration: AgentConfigurationState;
+  selectable: boolean;
+  state: AgentReadinessState;
+  version?: string;
+  diagnostic: string;
+  supportTier: AgentSupportTier;
+  checkedAt: number;
+}
+
 interface LanProviderConfig {
   id: string;
   name: string;
@@ -98,7 +117,6 @@ interface TaskAttachment {
   size: number;
   kind: 'image' | 'pdf' | 'text' | 'file';
 }
-
 
 interface HealthCheckItem {
   id: string;
@@ -234,10 +252,9 @@ interface CodexAPI {
   onDiscussionMessage: (callback: (data: { sessionId: string; message: DiscussionMessage }) => void) => () => void;
   onDiscussionEvent: (callback: (data: { sessionId: string; event: CodexEvent }) => void) => () => void;
   onDiscussionError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
-  getAvailableAgents: () => Promise<Array<{ id: string; name: string }>>;
+  getAvailableAgents: () => Promise<AgentReadiness[]>;
 }
 
-// Discussion types
 interface DiscussionMessage {
   id: string;
   role: 'user' | 'agent' | 'synthesis';
