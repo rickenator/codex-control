@@ -126,6 +126,25 @@ test('uses explicit executable overrides for probes', async () => {
   assert.ok(calls.includes('/opt/tools/aider-custom --version'));
 });
 
+test('accepts host-resolved commands with prefix arguments', async () => {
+  const calls: string[] = [];
+  const agents = await detectAgentReadiness({
+    env: {},
+    commandResolver: agentId => agentId === 'codex'
+      ? { command: 'cmd.exe', prefixArgs: ['/d', '/s', '/c', 'C:\\Tools\\codex.cmd'] }
+      : null,
+    runner: runnerFor({
+      'cmd.exe /d /s /c C:\\Tools\\codex.cmd --version': result({ stdout: 'codex-cli 1.2.3\n' }),
+      'cmd.exe /d /s /c C:\\Tools\\codex.cmd login status': result({ stdout: 'Logged in using ChatGPT\n' }),
+    }, calls),
+  });
+
+  const codex = agents.find(agent => agent.id === 'codex');
+  assert.equal(codex?.selectable, true);
+  assert.ok(calls.includes('cmd.exe /d /s /c C:\\Tools\\codex.cmd --version'));
+  assert.ok(calls.includes('cmd.exe /d /s /c C:\\Tools\\codex.cmd login status'));
+});
+
 test('isolates a timed-out agent check from the other results', async () => {
   const agents = await detectAgentReadiness({
     env: {},
