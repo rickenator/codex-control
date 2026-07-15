@@ -6,7 +6,7 @@ import { startMobileBridge } from '../src/main/mobile-bridge.ts';
 
 const token = 'test-token-that-is-at-least-32-characters-long';
 
-test('mobile bridge requires authentication and exposes only companion actions', async () => {
+test('mobile bridge requires authentication and routes approvals to their owner', async () => {
   const calls: string[] = [];
   const approvalRouter = new AgentApprovalRouter();
   approvalRouter.register({
@@ -33,9 +33,9 @@ test('mobile bridge requires authentication and exposes only companion actions',
       sendInput: (id, input) => { calls.push(`input:${id}:${input}`); return true; },
       reconnectSession: id => { calls.push(`reconnect:${id}`); return true; },
       stopSession: id => { calls.push(`stop:${id}`); return true; },
-      getPendingApprovals: id => [{ id: 'approval-1', sessionId: id || 'session-1' }],
-      approveCommand: id => { calls.push(`approve:${id}`); return true; },
-      rejectCommand: id => { calls.push(`reject:${id}`); return true; },
+      getPendingApprovals: () => { calls.push('legacy:get-pending'); return []; },
+      approveCommand: id => { calls.push(`legacy:approve:${id}`); return true; },
+      rejectCommand: id => { calls.push(`legacy:reject:${id}`); return true; },
     },
   });
   const url = `http://${bridge.host}:${bridge.port}`;
@@ -54,7 +54,14 @@ test('mobile bridge requires authentication and exposes only companion actions',
     assert.deepEqual(await input.json(), { ok: true });
 
     const pending = await (await fetch(`${url}/v1/approvals?sessionId=session-1`, { headers })).json();
-    assert.deepEqual(pending, [{ id: 'approval-1', sessionId: 'session-1' }]);
+    assert.deepEqual(pending, [{
+      id: 'approval-1',
+      sessionId: 'session-1',
+      command: 'npm test',
+      workingDir: '/tmp/project',
+      timestamp: 1,
+      status: 'pending',
+    }]);
 
     const approved = await fetch(`${url}/v1/approvals/approval-1/approve`, { method: 'POST', headers });
     assert.equal(approved.status, 200);
@@ -62,7 +69,6 @@ test('mobile bridge requires authentication and exposes only companion actions',
     assert.deepEqual(calls, [
       'input:session-1:keep going',
       'route:session-1:approval-1:true',
-      'approve:approval-1',
     ]);
 
     const replay = await fetch(`${url}/v1/approvals/approval-1/reject`, { method: 'POST', headers });
