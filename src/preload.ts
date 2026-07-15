@@ -1,5 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+async function getLivePendingApprovals(sessionId?: string): Promise<ApprovalRecord[]> {
+  const stored = await ipcRenderer.invoke('approval:get-pending', sessionId) as ApprovalRecord[];
+  const liveIds = new Set(
+    await ipcRenderer.invoke('agents:pending-approval-ids', sessionId) as string[],
+  );
+
+  const stale = stored.filter(approval => !liveIds.has(approval.id));
+  await Promise.all(stale.map(approval => ipcRenderer.invoke('approval:reject', approval.id)));
+  return stored.filter(approval => liveIds.has(approval.id));
+}
+
+async function resolveApprovalDecision(approvalId: string, approved: boolean): Promise<boolean> {
+  const resolution = await ipcRenderer.invoke('agents:resolve-approval', { approvalId, approved }) as {
+    ok?: boolean;
+  };
+  if (!resolution?.ok) return false;
+
+  return ipcRenderer.invoke(approved ? 'approval:approve' : 'approval:reject', approvalId);
+}
+
 contextBridge.exposeInMainWorld('codexApi', {
     // Sessions
     startSession: (opts: {
@@ -139,12 +159,9 @@ contextBridge.exposeInMainWorld('codexApi', {
     },
 
     // Approvals
-    getPendingApprovals: (sessionId?: string) =>
-      ipcRenderer.invoke('approval:get-pending', sessionId),
-    approveCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:approve', approvalId),
-    rejectCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:reject', approvalId),
+    getPendingApprovals: (sessionId?: string) => getLivePendingApprovals(sessionId),
+    approveCommand: (approvalId: string) => resolveApprovalDecision(approvalId, true),
+    rejectCommand: (approvalId: string) => resolveApprovalDecision(approvalId, false),
 
     // Approval notifications
     onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => {
