@@ -60,11 +60,12 @@ function protocolFor(_agentId: ApprovalAwareAgentId): Pick<PendingProtocolApprov
 export class ApprovalAwareAdapter implements AgentAdapter {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly pendingApprovals = new Map<string, PendingProtocolApproval>();
+  private readonly agentId: ApprovalAwareAgentId;
+  private readonly inner: AdapterCore;
 
-  constructor(
-    private readonly agentId: ApprovalAwareAgentId,
-    private readonly inner: AdapterCore,
-  ) {
+  constructor(agentId: ApprovalAwareAgentId, inner: AdapterCore) {
+    this.agentId = agentId;
+    this.inner = inner;
     enforceInteractiveApprovalMode(agentId, inner);
   }
 
