@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import type { AgentReadiness } from './agent-readiness';
+import type { AgentReadiness } from './agent-readiness.ts';
 
 export type BootstrapPhase =
   | 'idle'
@@ -158,8 +158,10 @@ export function configureManagedAgentEnvironment(
   env.CONSIGLIO_AGENT_HOME = home;
   const codex = managedCodexExecutable(userDataPath, platform);
   const interpreter = managedOpenInterpreterExecutable(userDataPath, platform);
-  if (!env.CODEX_BIN && fileExists(codex)) env.CODEX_BIN = codex;
-  if (!env.OI_BIN && fileExists(interpreter)) env.OI_BIN = interpreter;
+  const configuredCodex = env.CODEX_BIN?.trim();
+  const configuredInterpreter = env.OI_BIN?.trim();
+  if ((!configuredCodex || !fileExists(configuredCodex)) && fileExists(codex)) env.CODEX_BIN = codex;
+  if ((!configuredInterpreter || !fileExists(configuredInterpreter)) && fileExists(interpreter)) env.OI_BIN = interpreter;
   return { home, codex, interpreter };
 }
 
@@ -229,7 +231,18 @@ async function installCodex(
       timeoutMs: INSTALL_TIMEOUT_MS,
     });
     if (result.exitCode === 0) {
-      return { id: 'codex', attempted: true, installed: true, diagnostic: 'The official Codex standalone installer completed.' };
+      const userHome = env.HOME?.trim() || '';
+      const executable = [
+        userHome ? path.join(userHome, '.local', 'bin', 'codex') : '',
+        userHome ? path.join(userHome, 'bin', 'codex') : '',
+      ].find(candidate => candidate && fileExists(candidate));
+      if (executable) env.CODEX_BIN = executable;
+      return {
+        id: 'codex', attempted: true, installed: true, executable: executable || undefined,
+        diagnostic: executable
+          ? 'The official Codex standalone installer completed and the executable was detected.'
+          : 'The official Codex standalone installer completed; Consiglio will rescan standard executable locations.',
+      };
     }
     return {
       id: 'codex', attempted: true, installed: false,
@@ -254,7 +267,7 @@ async function installOpenInterpreter(
   if (!python) {
     return {
       id: 'open-interpreter', attempted: true, installed: false,
-      diagnostic: 'Open Interpreter was not found and Python 3 is unavailable. Install Python 3.10 or 3.11, then refresh.',
+      diagnostic: 'Open Interpreter was not found and Python 3 is unavailable. Install Python 3, then refresh.',
     };
   }
 
