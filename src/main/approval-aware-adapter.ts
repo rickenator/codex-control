@@ -4,7 +4,7 @@ import type {
   AgentSession,
   AgentSessionOptions,
 } from './agent-adapter';
-import { agentApprovalRouter } from './approval-router';
+import { agentApprovalRouter } from './approval-router.ts';
 
 export type ApprovalAwareAgentId = AgentSessionOptions['agent'];
 export type AdapterCore = Omit<AgentAdapter, 'resolveApproval'> & Partial<Pick<AgentAdapter, 'resolveApproval'>>;
