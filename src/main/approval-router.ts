@@ -39,10 +39,15 @@ export class AgentApprovalRouter {
     return true;
   }
 
-  pendingIds(sessionId?: string): string[] {
+  pendingApprovals(sessionId?: string): AgentApproval[] {
     return [...this.pending.values()]
-      .filter(entry => !sessionId || entry.approval.sessionId === sessionId)
-      .map(entry => entry.approval.id);
+      .map(entry => entry.approval)
+      .filter(approval => !sessionId || approval.sessionId === sessionId)
+      .sort((left, right) => right.timestamp - left.timestamp);
+  }
+
+  pendingIds(sessionId?: string): string[] {
+    return this.pendingApprovals(sessionId).map(approval => approval.id);
   }
 
   has(approvalId: string): boolean {
