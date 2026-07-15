@@ -43,8 +43,14 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Verify application
-        run: npm run verify
+      - name: Type-check application
+        run: npm run typecheck
+
+      - name: Test application
+        run: npm test
+
+      - name: Build application
+        run: npm run build
 
   mobile-web:
     name: Verify mobile client
