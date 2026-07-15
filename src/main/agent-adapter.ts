@@ -1,10 +1,10 @@
 /**
  * Agent Adapter Interface
- * 
+ *
  * Defines the contract for pluggable AI agent adapters. Each adapter wraps a
  * different CLI-based AI agent (Codex, Open Interpreter, Aider, etc.) and
  * normalizes its output into a unified event stream that the UI understands.
- * 
+ *
  * The rest of Consiglio talks to this interface — never to a concrete agent.
  */
 
@@ -18,10 +18,10 @@ import type { IPty } from 'node-pty';
  */
 export interface AgentEvent {
   id: string;
-  type: 'prompt' | 'response' | 'code' | 'console' | 'error' | 'approval_request' 
+  type: 'prompt' | 'response' | 'code' | 'console' | 'error' | 'approval_request'
        | 'system' | 'files' | 'interrupted';
   content: string;
-  metadata?: Record<string, unknown>;  // language, format, paths, etc.
+  metadata?: Record<string, unknown>;
   timestamp: number;
   session_id: string;
 }
@@ -35,9 +35,9 @@ export interface AgentEvent {
 export interface AgentApproval {
   id: string;
   sessionId: string;
-  command: string;        // "python script.py" or "npm run build"
-  code?: string;          // the code to execute (OI, Aider, etc.)
-  language?: string;      // "python", "javascript", "shell", etc.
+  command: string;
+  code?: string;
+  language?: string;
   workingDir: string;
   timestamp: number;
   status: 'pending' | 'approved' | 'rejected';
@@ -70,15 +70,11 @@ export interface AgentSessionOptions {
   baseUrl?: string;
   apiKey?: string;
   customArgs?: string[];
-  // Agent-specific config (OI profiles, Codex providers, etc.)
   [key: string]: unknown;
 }
 
 // ─── Agent Detection ──────────────────────────────────────────────────────────
 
-/**
- * What detectAvailable() returns — used for health checks and startup.
- */
 export interface AgentInfo {
   id: 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
   name: string;
@@ -92,111 +88,80 @@ export interface AgentInfo {
 
 /**
  * Core adapter interface. Each agent gets its own implementation.
- * 
+ *
  * The adapter owns:
  * - PTY lifecycle (spawn, kill)
  * - Event parsing (normalize agent output → AgentEvent[])
- * - Approval handling (emit AgentApproval when code execution is requested)
+ * - Approval handling (emit and resolve AgentApproval requests)
  * - Session persistence (save/restore session state)
  */
 export interface AgentAdapter {
-  /**
-   * Spawn a new session for this agent.
-   * Returns a session handle with the PTY and metadata.
-   */
   launch(options: AgentSessionOptions): Promise<AgentSession>;
-  
-  /**
-   * Send a prompt to an active session.
-   * Returns the accumulated response string when the agent finishes,
-   * or an empty string if the prompt could not be sent.
-   */
+
   sendPrompt(sessionId: string, input: string): Promise<string>;
-  
+
   /**
-   * Stop a running session (kill PTY, clean up).
+   * Send one single-use approve/reject decision to the exact blocked session
+   * that emitted the approval ID. Returns false for stale, duplicate, or
+   * cross-session IDs.
    */
+  resolveApproval(sessionId: string, approvalId: string, approved: boolean): Promise<boolean>;
+
   stopSession(sessionId: string): Promise<boolean>;
-  
-  /**
-   * Reconnect to a saved session (if the agent supports it).
-   * Some agents (like Codex) have thread IDs that survive restarts.
-   */
+
   reconnectSession(sessionId: string): Promise<boolean>;
 }
 
 // ─── Agent Detection ──────────────────────────────────────────────────────────
 
-/**
- * Detect which agents are available on this system.
- * Used for health checks and startup validation.
- * Each adapter implements its own detection logic.
- */
 export function detectAgents(emitters: EventEmitters): AgentInfo[] {
   const results: AgentInfo[] = [];
-  
-  // Codex detection
+
   try {
     const codexAdapter = new (require('./adapters/codex-adapter').CodexAdapter)(emitters);
     results.push(...(codexAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'codex', name: 'Codex CLI', installed: false, authenticated: false });
   }
-  
-  // Open Interpreter detection
+
   try {
     const oiAdapter = new (require('./adapters/open-interpreter-adapter').OpenInterpreterAdapter)(emitters);
     results.push(...(oiAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'open-interpreter', name: 'Open Interpreter', installed: false, authenticated: false });
   }
-  
-  // Aider detection (stub)
+
   try {
     const aiderAdapter = new (require('./adapters/aider-adapter').AiderAdapter)(emitters);
     results.push(...(aiderAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'aider', name: 'Aider', installed: false, authenticated: false });
   }
-  
-  // Claude Code detection (stub)
+
   try {
     const claudeAdapter = new (require('./adapters/claude-code-adapter').ClaudeCodeAdapter)(emitters);
     results.push(...(claudeAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'claude-code', name: 'Claude Code', installed: false, authenticated: false });
   }
-  
+
   return results;
 }
 
 // ─── Event Emitter Helper ─────────────────────────────────────────────────────
 
-/**
- * Shared event emitter that adapters use to emit events to the UI.
- * This keeps the adapter code clean and testable.
- */
 export interface EventEmitters {
-  /** Emit a unified event to the UI */
   emitEvent(event: AgentEvent): void;
-  
-  /** Emit an approval request to the UI */
+
   emitApproval(approval: AgentApproval): void;
-  
-  /** Emit terminal output (raw PTY data) */
+
   emitTerminalOutput(sessionId: string, data: string): void;
 }
 
 // ─── Event Parser Helper ──────────────────────────────────────────────────────
 
-/**
- * Shared event parser that adapters use to normalize raw output into events.
- * Each agent has a different output format; this normalizes them all.
- */
 export interface EventParser {
-  /** Parse raw output string into unified events */
   parse(raw: string, sessionId: string): AgentEvent[];
-  
-  /** Check if the raw output contains an approval request */
+
   parseApproval?(raw: string, sessionId: string): AgentApproval | null;
 }
