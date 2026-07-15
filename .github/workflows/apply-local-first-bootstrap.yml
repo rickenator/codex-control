@@ -16,12 +16,16 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout transformation branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          ref: agent/local-first-startup-bootstrap
-          fetch-depth: 1
-          show-progress: false
+      - name: Fetch transformation branch quietly
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth=1 origin agent/local-first-startup-bootstrap
+          git checkout -q -B agent/local-first-startup-bootstrap FETCH_HEAD
 
       - name: Verify and apply transformation
         shell: bash
