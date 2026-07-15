@@ -6,7 +6,7 @@
  * by the Electron main process alongside the adapter registry.
  */
 
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 
 import { isTrustedRendererUrl } from '../app-protocol';
 import { ApprovalAwareAdapter, type AdapterCore } from '../approval-aware-adapter';
@@ -21,7 +21,7 @@ import { ClaudeCodeAdapter } from './claude-code-adapter';
 
 export const AGENT_READINESS_CHANNEL = 'agents:readiness';
 export const AGENT_APPROVAL_RESOLVE_CHANNEL = 'agents:resolve-approval';
-export const AGENT_APPROVAL_PENDING_CHANNEL = 'agents:pending-approval-ids';
+export const AGENT_APPROVAL_PENDING_CHANNEL = 'agents:pending-approvals';
 
 type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 
@@ -30,6 +30,20 @@ function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent): void {
   const isMainFrame = event.senderFrame === event.sender.mainFrame;
   if (!isMainFrame || !isTrustedRendererUrl(senderUrl)) {
     throw new Error('Rejected agent request from an untrusted renderer');
+  }
+}
+
+function approvalRecord(approval: AgentApproval) {
+  return {
+    ...approval,
+    sandboxPolicy: approval.sandboxPolicy || 'agent-controlled',
+    affectedPaths: approval.affectedPaths || [],
+  };
+}
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(channel, payload);
   }
 }
 
@@ -49,7 +63,7 @@ function registerAgentHandlers(): void {
   });
 
   ipcMain.removeHandler(AGENT_APPROVAL_RESOLVE_CHANNEL);
-  ipcMain.handle(AGENT_APPROVAL_RESOLVE_CHANNEL, (event, input: {
+  ipcMain.handle(AGENT_APPROVAL_RESOLVE_CHANNEL, async (event, input: {
     approvalId?: unknown;
     approved?: unknown;
     sessionId?: unknown;
@@ -59,13 +73,19 @@ function registerAgentHandlers(): void {
       throw new Error('Invalid approval resolution request');
     }
     const expectedSessionId = typeof input.sessionId === 'string' ? input.sessionId : undefined;
-    return agentApprovalRouter.resolve(input.approvalId, input.approved, expectedSessionId);
+    const result = await agentApprovalRouter.resolve(input.approvalId, input.approved, expectedSessionId);
+    if (result.ok) {
+      broadcast('codex:approval-processed', { id: input.approvalId, approved: input.approved });
+    }
+    return result;
   });
 
   ipcMain.removeHandler(AGENT_APPROVAL_PENDING_CHANNEL);
   ipcMain.handle(AGENT_APPROVAL_PENDING_CHANNEL, (event, sessionId?: unknown) => {
     assertTrustedRenderer(event);
-    return agentApprovalRouter.pendingIds(typeof sessionId === 'string' ? sessionId : undefined);
+    return agentApprovalRouter
+      .pendingApprovals(typeof sessionId === 'string' ? sessionId : undefined)
+      .map(approvalRecord);
   });
 }
 
@@ -92,7 +112,7 @@ export function getAdapter(agent: AgentId, emitters: EventEmitters): AgentAdapte
     ...emitters,
     emitApproval: (approval: AgentApproval) => {
       if (!decorated?.trackApproval(approval)) return;
-      emitters.emitApproval(approval);
+      broadcast('codex:approval-request', approvalRecord(approval));
     },
   };
 
