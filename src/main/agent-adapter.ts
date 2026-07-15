@@ -39,6 +39,8 @@ export interface AgentApproval {
   code?: string;
   language?: string;
   workingDir: string;
+  sandboxPolicy?: string;
+  affectedPaths?: string[];
   timestamp: number;
   status: 'pending' | 'approved' | 'rejected';
 }
@@ -102,10 +104,10 @@ export interface AgentAdapter {
 
   /**
    * Send one single-use approve/reject decision to the exact blocked session
-   * that emitted the approval ID. Returns false for stale, duplicate, or
-   * cross-session IDs.
+   * that emitted the approval ID. Legacy concrete adapters may omit this while
+   * the registry wraps them in ApprovalAwareAdapter.
    */
-  resolveApproval(sessionId: string, approvalId: string, approved: boolean): Promise<boolean>;
+  resolveApproval?(sessionId: string, approvalId: string, approved: boolean): Promise<boolean>;
 
   stopSession(sessionId: string): Promise<boolean>;
 
