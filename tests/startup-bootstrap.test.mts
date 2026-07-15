@@ -34,9 +34,9 @@ function ok(): InstallCommandResult {
 }
 
 test('managed agent paths are platform-specific', () => {
-  assert.equal(managedCodexExecutable('/data', 'linux'), path.join('/data', 'agents', 'codex', 'node_modules', '.bin', 'codex'));
+  assert.equal(managedCodexExecutable('/data', 'linux'), path.posix.join('/data', 'agents', 'codex', 'node_modules', '.bin', 'codex'));
   assert.equal(managedCodexExecutable('C:\\data', 'win32'), path.win32.join('C:\\data', 'agents', 'codex', 'node_modules', '.bin', 'codex.cmd'));
-  assert.equal(managedOpenInterpreterExecutable('/data', 'linux'), path.join('/data', 'agents', 'open-interpreter', 'bin', 'interpreter'));
+  assert.equal(managedOpenInterpreterExecutable('/data', 'linux'), path.posix.join('/data', 'agents', 'open-interpreter', 'bin', 'interpreter'));
   assert.equal(managedOpenInterpreterExecutable('C:\\data', 'win32'), path.win32.join('C:\\data', 'agents', 'open-interpreter', 'Scripts', 'interpreter.exe'));
 });
 
@@ -47,7 +47,7 @@ test('managed executables are added to the environment when present', () => {
     managedOpenInterpreterExecutable('/data', 'linux'),
   ]);
   configureManagedAgentEnvironment('/data', env, 'linux', candidate => expected.has(candidate));
-  assert.equal(env.CONSIGLIO_AGENT_HOME, path.join('/data', 'agents'));
+  assert.equal(env.CONSIGLIO_AGENT_HOME, path.posix.join('/data', 'agents'));
   assert.equal(env.CODEX_BIN, managedCodexExecutable('/data', 'linux'));
   assert.equal(env.OI_BIN, managedOpenInterpreterExecutable('/data', 'linux'));
 });
@@ -64,14 +64,15 @@ test('stale executable overrides are replaced by managed executables', () => {
 });
 
 test('missing Codex and Open Interpreter are installed in user data', async t => {
+  const platform = process.platform;
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'consiglio-bootstrap-'));
   t.after(() => fs.rmSync(userDataPath, { recursive: true, force: true }));
 
   const env: NodeJS.ProcessEnv = {};
   const calls: InstallCommandRequest[] = [];
   const expectedFiles = new Set([
-    managedCodexExecutable(userDataPath, 'linux'),
-    managedOpenInterpreterExecutable(userDataPath, 'linux'),
+    managedCodexExecutable(userDataPath, platform),
+    managedOpenInterpreterExecutable(userDataPath, platform),
   ]);
   const runner = async (request: InstallCommandRequest) => {
     calls.push(request);
@@ -82,7 +83,7 @@ test('missing Codex and Open Interpreter are installed in user data', async t =>
     readiness: [readiness('codex', false), readiness('open-interpreter', false)],
     userDataPath,
     env,
-    platform: 'linux',
+    platform,
     runner,
     fileExists: candidate => expectedFiles.has(candidate),
     onProgress: update => progress.push(update.phase),
@@ -92,11 +93,11 @@ test('missing Codex and Open Interpreter are installed in user data', async t =>
     ['codex', true],
     ['open-interpreter', true],
   ]);
-  assert.ok(calls.some(call => call.command === 'npm' && call.args.includes('@openai/codex')));
+  assert.ok(calls.some(call => call.command === (platform === 'win32' ? 'npm.cmd' : 'npm') && call.args.includes('@openai/codex')));
   assert.ok(calls.some(call => call.args.includes('open-interpreter')));
   assert.deepEqual(progress, ['installing-codex', 'installing-open-interpreter']);
-  assert.equal(env.CODEX_BIN, managedCodexExecutable(userDataPath, 'linux'));
-  assert.equal(env.OI_BIN, managedOpenInterpreterExecutable(userDataPath, 'linux'));
+  assert.equal(env.CODEX_BIN, managedCodexExecutable(userDataPath, platform));
+  assert.equal(env.OI_BIN, managedOpenInterpreterExecutable(userDataPath, platform));
 });
 
 test('installed front ends are not reinstalled', async () => {
