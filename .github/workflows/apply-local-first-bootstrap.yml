@@ -31,6 +31,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat > /tmp/repair-002-manifest <<'EOF'
+          999c47a7489af6367fe81642c324fd2adec0f2c4ab02a21b144610e45b66dc6d  scripts/.bootstrap-repair-002-0
+          1c621584102eab62c2fc55339f377604087da743be77dda2701fc55da1d1ca08  scripts/.bootstrap-repair-002-1
+          36f43fa6c0ea12ab1109ca3e11f3b4cb7648b10567e6cc34e704dfabcbc948b2  scripts/.bootstrap-repair-002-2
+          21a7dc6d7c5a68aefe2644fd44fedfd0871a04b082f12bb996c7531545b6bdd6  scripts/.bootstrap-repair-002-3
+          a544d4581ec8f6eff8b8867a295e058d43a53fa46b6f77c530cef61c257e68ef  scripts/.bootstrap-repair-002-4
+          cb2a58f1a2ed783b574997665b23d089e60a6c89aa2b4e24f1068a756637c9cf  scripts/.bootstrap-repair-002-5
+          EOF
+          sha256sum -c /tmp/repair-002-manifest
+          cat scripts/.bootstrap-repair-002-* > scripts/.bootstrap-v2-part-002
           echo 'Received fragment hashes:'
           sha256sum scripts/.bootstrap-v2-part-*
           sha256sum -c scripts/.bootstrap-v2-manifest
@@ -39,7 +49,7 @@ jobs:
           base64 -d /tmp/apply-local-first-bootstrap.b64 > scripts/apply-local-first-bootstrap.py
           echo '8963de0e7cbf5e777483051fddb98e0d8e7292d7175b6e12c944b765ce3922b7  scripts/apply-local-first-bootstrap.py' | sha256sum -c -
           python -m py_compile scripts/apply-local-first-bootstrap.py
-          rm -f scripts/.bootstrap-patch-part-* scripts/.bootstrap-v2-part-* scripts/.bootstrap-v2-manifest
+          rm -f scripts/.bootstrap-patch-part-* scripts/.bootstrap-repair-002-* scripts/.bootstrap-v2-part-* scripts/.bootstrap-v2-manifest
           python scripts/apply-local-first-bootstrap.py
 
       - name: Commit generated production patch
