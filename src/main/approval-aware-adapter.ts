@@ -7,6 +7,7 @@ import type {
 import { agentApprovalRouter } from './approval-router';
 
 export type ApprovalAwareAgentId = AgentSessionOptions['agent'];
+export type AdapterCore = Omit<AgentAdapter, 'resolveApproval'> & Partial<Pick<AgentAdapter, 'resolveApproval'>>;
 
 interface PendingProtocolApproval {
   approval: AgentApproval;
@@ -33,7 +34,7 @@ export function sanitizeApprovalArgs(agentId: ApprovalAwareAgentId, args: string
  */
 export function enforceInteractiveApprovalMode(
   agentId: ApprovalAwareAgentId,
-  adapter: AgentAdapter,
+  adapter: AdapterCore,
 ): void {
   if (agentId === 'codex') return;
 
@@ -62,7 +63,7 @@ export class ApprovalAwareAdapter implements AgentAdapter {
 
   constructor(
     private readonly agentId: ApprovalAwareAgentId,
-    private readonly inner: AgentAdapter,
+    private readonly inner: AdapterCore,
   ) {
     enforceInteractiveApprovalMode(agentId, inner);
   }
@@ -104,7 +105,6 @@ export class ApprovalAwareAdapter implements AgentAdapter {
     const session = this.sessions.get(sessionId);
     if (!session?.pty) return false;
 
-    // Remove before writing so a second decision cannot race the PTY write.
     this.pendingApprovals.delete(approvalId);
     try {
       session.pty.write(approved ? pending.approveInput : pending.rejectInput);
