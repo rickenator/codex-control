@@ -83,6 +83,14 @@ export default function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [providerStatus, setProviderStatus] = useState<Record<string, 'ok' | 'error' | 'checking' | null>>({});
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [bootstrapProgress, setBootstrapProgress] = useState<BootstrapProgress>({
+    phase: 'discovering-local',
+    message: 'Preparing local AI discovery…',
+    active: true,
+    completed: 0,
+    total: 4,
+    updatedAt: Date.now(),
+  });
   const [isInitializing, setIsInitializing] = useState(true);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -130,7 +138,9 @@ export default function App() {
     setSettings(savedSettings);
     const created = await window.codexApi.startSession({
       provider: recommendation.recommendedProvider,
+      selectedLanProviderId: recommendation.selectedLanProviderId,
       ollama: recommendation.recommendedProvider === 'ollama' ? savedSettings.ollama : undefined,
+      remoteLlamaCpp: recommendation.recommendedProvider === 'remote_llamacpp' ? savedSettings.remoteLlamaCpp : undefined,
     });
     const updatedSessions = await window.codexApi.listSessions();
     setSessions(updatedSessions);
@@ -140,6 +150,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const unsubscribeBootstrap = window.codexApi.onBootstrapProgress(setBootstrapProgress);
     const initialize = async () => {
       try {
         const [loadedSessions, loadedSettings, status] = await Promise.all([
@@ -151,6 +162,7 @@ export default function App() {
         setSessions(loadedSessions);
         setSettings(loadedSettings);
         setStartupStatus(status);
+        setBootstrapProgress(status.bootstrap);
         const providerStates: Record<string, 'ok' | 'error' | 'checking' | null> = {};
         status.checks.forEach(check => {
           providerStates[check.id] = check.status === 'ok' ? 'ok' : check.status === 'error' ? 'error' : null;
@@ -175,7 +187,7 @@ export default function App() {
       }
     };
     void initialize();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; unsubscribeBootstrap(); };
   }, []);
 
   useEffect(() => {
@@ -531,14 +543,15 @@ export default function App() {
   const healthSummary = summarizeHealth(startupStatus);
 
   if (isInitializing && sessions.length === 0) {
-    return <ProviderSetupScreen status={null} checking />;
+    return <ProviderSetupScreen status={null} checking progress={bootstrapProgress} />;
   }
 
   if (sessions.length === 0) {
     return (
       <ProviderSetupScreen
         status={startupStatus}
-        checking={isRefreshingStatus}
+        checking={isRefreshingStatus || bootstrapProgress.active}
+        progress={bootstrapProgress}
         onRefresh={() => void handleRefreshStartupStatus()}
         onUseLan={() => void handleUseDiscoveredLan()}
         onOpenCodex={() => void window.codexApi.openPath('https://github.com/openai/codex#installation')}
@@ -1152,6 +1165,7 @@ function HealthPill({ label, status, message }: { label: string; status: HealthC
 function ProviderSetupScreen({
   status,
   checking,
+  progress,
   onRefresh,
   onOpenCodex,
   onOpenOllama,
@@ -1159,81 +1173,96 @@ function ProviderSetupScreen({
 }: {
   status: StartupStatus | null;
   checking: boolean;
+  progress: BootstrapProgress;
   onRefresh?: () => void;
   onOpenCodex?: () => void;
   onOpenOllama?: () => void;
   onUseLan?: () => void;
 }) {
   const setup = status?.providerSetup;
+  const percent = Math.max(8, Math.round((progress.completed / Math.max(1, progress.total)) * 100));
   return (
     <main className="provider-setup-shell">
       <section className="provider-setup-card" aria-live="polite">
         <div className="provider-setup-brand">Consiglio</div>
         <div className="provider-setup-heading">
-          <span className="provider-setup-kicker">FIRST RUN</span>
-          <h1>{checking ? 'Checking your AI setup' : 'Choose how Consiglio thinks'}</h1>
+          <span className="provider-setup-kicker">LOCAL-FIRST STARTUP</span>
+          <h1>{checking ? 'Finding and configuring local AI' : 'Your AI setup'}</h1>
           <p>
-            Consiglio checks your AI account, free local Ollama models, and compatible AI servers on your network.
-            It will only create a task after a provider responds successfully.
+            Consiglio first searches this computer and its local network for llama.cpp, Ollama, and compatible OpenAI-style endpoints.
+            Codex and Open Interpreter are installed as lightweight front ends when missing.
           </p>
         </div>
 
+        {checking && (
+          <div className="provider-discovery-progress">
+            <span className="provider-discovery-spinner" aria-hidden="true" />
+            <div className="provider-discovery-copy">
+              <strong>{progress.message}</strong>
+              <div className="provider-discovery-track"><span style={{ width: `${percent}%` }} /></div>
+            </div>
+          </div>
+        )}
+
         <div className="provider-setup-options">
-          <article className={`provider-setup-option${setup?.codexAuthenticated ? ' is-ready' : ''}`}>
+          <article className={`provider-setup-option${setup?.lanAvailable ? ' is-ready' : ''}`}>
             <div className="provider-setup-option-title">
-              <span>Codex</span>
-              <span className="provider-setup-tag">Recommended</span>
+              <span>llama.cpp and network AI</span>
+              <span className="provider-setup-tag is-lan">First choice</span>
             </div>
-            <p>Use your existing AI authentication, models, configuration, and MCP servers.</p>
+            <p>Use a running local or LAN model server without sending prompts to a hosted provider.</p>
             <div className="provider-setup-status">
-              {setup?.codexAuthenticated
-                ? 'Ready and signed in'
-                : setup?.codexInstalled
-                  ? 'Installed; sign in from a terminal with: codex login'
-                  : 'Codex CLI must be installed before Consiglio can run tasks'}
+              {setup?.lanAvailable
+                ? `${setup.lanProviderName} · ${setup.lanModel} · ${setup.lanEndpoint}`
+                : checking ? 'Scanning loopback and local subnets…' : 'No compatible llama.cpp endpoint responded.'}
             </div>
-            {!setup?.codexAuthenticated && (
-              <button className="codex-button codex-button-secondary" onClick={onOpenCodex}>Install Codex</button>
-            )}
+            {setup?.lanAvailable && <button className="codex-button codex-button-secondary" onClick={onUseLan}>Use this endpoint</button>}
           </article>
 
           <article className={`provider-setup-option${setup?.ollamaAvailable ? ' is-ready' : ''}`}>
             <div className="provider-setup-option-title">
               <span>Ollama</span>
-              <span className="provider-setup-tag is-free">Free and local</span>
+              <span className="provider-setup-tag is-free">Local</span>
             </div>
-            <p>Run an AI model on this computer. No API key or paid cloud account is required.</p>
+            <p>Use models already installed in Ollama on this computer.</p>
             <div className="provider-setup-status">
               {setup?.ollamaAvailable
                 ? `${setup.ollamaModels.length} local model${setup.ollamaModels.length === 1 ? '' : 's'} detected`
-                : 'Not detected. Install Ollama, then download any model.'}
+                : checking ? 'Checking the Ollama service…' : 'Ollama is not running or has no installed model.'}
             </div>
-            {!setup?.ollamaAvailable && (
-              <button className="codex-button codex-button-secondary" onClick={onOpenOllama}>Get Ollama</button>
-            )}
+            {!setup?.ollamaAvailable && !checking && <button className="codex-button codex-button-secondary" onClick={onOpenOllama}>Get Ollama</button>}
           </article>
 
-          <article className={`provider-setup-option${setup?.lanAvailable ? ' is-ready' : ''}`}>
+          <article className={`provider-setup-option${setup?.codexInstalled ? ' is-ready' : ''}`}>
             <div className="provider-setup-option-title">
-              <span>Network AI</span>
-              <span className="provider-setup-tag is-lan">Automatic</span>
+              <span>Codex agent front end</span>
+              <span className="provider-setup-tag">Automatic</span>
             </div>
-            <p>Search this computer&apos;s actual local network for compatible llama.cpp and Ollama servers.</p>
+            <p>Runs tasks against the selected local provider; cloud sign-in remains optional.</p>
             <div className="provider-setup-status">
-              {setup?.lanAvailable
-                ? `${setup.lanProviderName} · ${setup.lanModel} · ${setup.lanEndpoint}`
-                : 'No verified network provider was found. The network is searched again when you check.'}
+              {setup?.codexInstalled
+                ? setup.codexAuthenticated ? 'Installed and signed in; local providers remain preferred' : 'Installed; ready for local providers'
+                : checking ? 'Installing Codex if needed…' : 'Automatic installation did not complete.'}
             </div>
-            {setup?.lanAvailable && (
-              <button className="codex-button codex-button-secondary" onClick={onUseLan}>Use this endpoint</button>
-            )}
+            {!setup?.codexInstalled && !checking && <button className="codex-button codex-button-secondary" onClick={onOpenCodex}>Install manually</button>}
+          </article>
+
+          <article className={`provider-setup-option${status?.agentInstalls.some(agent => agent.id === 'open-interpreter' && agent.installed) ? ' is-ready' : ''}`}>
+            <div className="provider-setup-option-title">
+              <span>Open Interpreter</span>
+              <span className="provider-setup-tag">Automatic</span>
+            </div>
+            <p>Installed in an isolated Consiglio-managed Python environment when Python is available.</p>
+            <div className="provider-setup-status">
+              {status?.agentInstalls.find(agent => agent.id === 'open-interpreter')?.diagnostic || (checking ? 'Checking and installing if needed…' : 'Not yet verified.')}
+            </div>
           </article>
         </div>
 
         <div className="provider-setup-actions">
-          <span>{checking ? 'Looking for AI providers and local models...' : 'Already set up? Check again and Consiglio will start automatically.'}</span>
+          <span>{checking ? progress.message : 'Discovery can be run again whenever local services or models change.'}</span>
           <button className="codex-button codex-button-primary" onClick={onRefresh} disabled={checking || !onRefresh}>
-            {checking ? 'Checking...' : 'Check again'}
+            {checking ? 'Discovering…' : 'Discover again'}
           </button>
         </div>
       </section>

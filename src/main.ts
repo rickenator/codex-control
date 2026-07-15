@@ -5,6 +5,8 @@ import { APP_PROTOCOL, APP_PROTOCOL_HOST, isSafeExternalUrl, isTrustedRendererUr
 import { startMobileBridge, type MobileBridgeHandle } from './main/mobile-bridge';
 import { normalizeMobileBridgePort, normalizeMobileBridgePublicUrl } from './main/mobile-pairing-config';
 import { resolveCodexCommand, type ExecutableCommand } from './main/platform';
+import { detectAgentReadiness, type AgentId, type ResolvedProbeCommand } from './main/agent-readiness';
+import { configureManagedAgentEnvironment, installMissingAgentFrontends, type AgentInstallResult, type BootstrapProgress } from './main/startup-bootstrap';
 import { CodexAdapter, getAdapter } from './main/adapters';
 import { DiscussionSession } from '@/main/discussion-session';
 import path from 'path';
@@ -266,6 +268,8 @@ interface StartupStatus {
   appUpdate: UpdateStatus;
   checks: HealthCheckItem[];
   providerSetup: ProviderSetupStatus;
+  bootstrap: BootstrapProgress;
+  agentInstalls: AgentInstallResult[];
 }
 
 interface ProviderSetupStatus {
@@ -279,8 +283,9 @@ interface ProviderSetupStatus {
   lanProviderName?: string;
   lanEndpoint?: string;
   lanModel?: string;
-  recommendedProvider?: 'default' | 'ollama';
+  recommendedProvider?: Provider;
   recommendedModel?: string;
+  selectedLanProviderId?: string;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -330,6 +335,20 @@ const discussionSessions = new Map<string, DiscussionSession>();
 const events = new Map<string, CodexEvent[]>();
 const approvals = new Map<string, ApprovalRequest>();
 const secrets = new Map<string, StoredSecret>();
+let startupChecksPromise: Promise<StartupStatus> | null = null;
+let latestBootstrapProgress: BootstrapProgress = {
+  phase: 'idle',
+  message: 'Waiting to inspect local AI providers.',
+  active: false,
+  completed: 0,
+  total: 4,
+  updatedAt: Date.now(),
+};
+
+function emitBootstrapProgress(progress: BootstrapProgress) {
+  latestBootstrapProgress = progress;
+  mainWindow?.webContents.send('system:bootstrap-progress', progress);
+}
 
 function isProvider(value: unknown): value is Provider {
   return value === 'default' || value === 'remote_llamacpp' || value === 'gpt56' || value === 'lan' || value === 'ollama';
@@ -432,9 +451,27 @@ async function ollamaReadiness() {
   }
 }
 
+function resolveAgentProbeCommand(agentId: AgentId, env: NodeJS.ProcessEnv): ResolvedProbeCommand | null {
+  if (agentId !== 'codex') return null;
+  const command = resolveCodexCommand({ env });
+  return command ? { command: command.executable, prefixArgs: command.prefixArgs } : null;
+}
+
 async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; providerSetup: ProviderSetupStatus }> {
-  const codex = codexReadiness();
-  const ollama = await ollamaReadiness();
+  const [agents, ollama] = await Promise.all([
+    detectAgentReadiness({ commandResolver: resolveAgentProbeCommand }),
+    ollamaReadiness(),
+  ]);
+  const codexAgent = agents.find(agent => agent.id === 'codex');
+  const interpreterAgent = agents.find(agent => agent.id === 'open-interpreter');
+  const codex = {
+    installed: codexAgent?.installed === true,
+    authenticated: codexAgent?.authenticated === true,
+    version: codexAgent?.version || '',
+    loginMessage: codexAgent?.diagnostic || 'Codex readiness is unavailable.',
+    codexPath: resolveCodexCommand()?.displayPath || process.env.CODEX_BIN || 'codex',
+    checkedAt: codexAgent?.checkedAt || Date.now(),
+  };
   const checks: HealthCheckItem[] = [
     {
       id: 'codex-cli',
@@ -445,15 +482,23 @@ async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; provide
       checkedAt: codex.checkedAt,
     },
     {
+      id: 'open-interpreter-cli',
+      label: 'Open Interpreter',
+      status: interpreterAgent?.installed ? 'ok' : 'warning',
+      message: interpreterAgent?.diagnostic || 'Open Interpreter was not detected.',
+      detail: process.env.OI_BIN,
+      checkedAt: interpreterAgent?.checkedAt || Date.now(),
+    },
+    {
       id: 'codex-login',
       label: 'Codex account',
       status: codex.authenticated ? 'ok' : 'warning',
-      message: codex.authenticated ? codex.loginMessage : 'Sign in with `codex login`, or use a local Ollama model.',
+      message: codex.authenticated ? codex.loginMessage : 'Cloud sign-in is optional when a local provider is ready.',
       checkedAt: codex.checkedAt,
     },
     {
       id: 'provider-ollama',
-      label: 'Free local AI',
+      label: 'Local Ollama',
       status: ollama.available ? 'ok' : 'warning',
       message: ollama.message,
       detail: appSettings.ollama.baseUrl,
@@ -461,11 +506,13 @@ async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; provide
     },
   ];
   const checkedAt = Date.now();
+  let remoteReady = false;
   if (appSettings.remoteLlamaCpp.baseUrl) {
     const result = await testRemoteLlamaCpp(appSettings.remoteLlamaCpp.baseUrl, appSettings.remoteLlamaCpp.apiKey, appSettings.remoteLlamaCpp.model);
+    remoteReady = result.ok && Boolean(appSettings.remoteLlamaCpp.model.trim());
     checks.push({
       id: 'provider-remote-llamacpp',
-      label: 'Remote llama.cpp',
+      label: 'Configured llama.cpp',
       status: result.ok ? 'ok' : 'warning',
       message: result.message,
       detail: appSettings.remoteLlamaCpp.baseUrl,
@@ -478,7 +525,7 @@ async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; provide
     const result = await testRemoteLlamaCpp(baseUrl, provider.apiKey, provider.model);
     checks.push({
       id: `provider-lan-${provider.id}`,
-      label: `LAN provider: ${provider.name}`,
+      label: `Discovered local AI: ${provider.name}`,
       status: result.ok ? 'ok' : 'warning',
       message: result.message,
       detail: baseUrl,
@@ -486,11 +533,24 @@ async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; provide
     });
     if (!readyLanProvider && result.ok && provider.model.trim()) readyLanProvider = provider;
   }
-  const recommendedProvider = codex.installed && codex.authenticated
-    ? 'default' as const
-    : codex.installed && ollama.available
-      ? 'ollama' as const
-      : undefined;
+
+  const loopbackLan = readyLanProvider && /^(127\.0\.0\.1|localhost)$/i.test(readyLanProvider.host.trim())
+    ? readyLanProvider
+    : appSettings.lanProviders.find(provider => /^(127\.0\.0\.1|localhost)$/i.test(provider.host.trim()));
+  const recommendedProvider: Provider | undefined = codex.installed
+    ? loopbackLan
+      ? 'lan'
+      : ollama.available
+        ? 'ollama'
+        : remoteReady
+          ? 'remote_llamacpp'
+          : readyLanProvider
+            ? 'lan'
+            : codex.authenticated
+              ? 'default'
+              : undefined
+    : undefined;
+  const selectedLan = recommendedProvider === 'lan' ? (loopbackLan || readyLanProvider) : undefined;
   return {
     checks,
     providerSetup: {
@@ -505,22 +565,75 @@ async function providerReadiness(): Promise<{ checks: HealthCheckItem[]; provide
       lanEndpoint: readyLanProvider ? lanProviderBaseUrl(readyLanProvider) : undefined,
       lanModel: readyLanProvider?.model,
       recommendedProvider,
-      recommendedModel: recommendedProvider === 'ollama' ? ollama.models[0] : undefined,
+      recommendedModel: recommendedProvider === 'ollama'
+        ? ollama.models[0]
+        : recommendedProvider === 'lan'
+          ? selectedLan?.model
+          : recommendedProvider === 'remote_llamacpp'
+            ? appSettings.remoteLlamaCpp.model
+            : undefined,
+      selectedLanProviderId: selectedLan?.id,
     },
   };
 }
 
-async function runStartupChecks(): Promise<StartupStatus> {
+async function performStartupChecks(): Promise<StartupStatus> {
+  const total = 4;
   const appUpdatePromise = checkForAppUpdate();
-  let readiness = await providerReadiness();
-  if (!readiness.providerSetup.ready && readiness.providerSetup.codexInstalled) {
-    await discoverAndSaveLanProviders();
-    readiness = await providerReadiness();
-  } else if (readiness.providerSetup.codexInstalled) {
-    void discoverAndSaveLanProviders().catch(error => console.error('Background LAN discovery failed:', error));
+  const userDataPath = app.getPath('userData');
+  configureManagedAgentEnvironment(userDataPath, process.env);
+
+  emitBootstrapProgress({
+    phase: 'discovering-local', message: 'Discovering llama.cpp, Ollama, and compatible LAN providers…',
+    active: true, completed: 0, total, updatedAt: Date.now(),
+  });
+  await discoverAndSaveLanProviders().catch(error => console.error('Automatic local AI discovery failed:', error));
+
+  emitBootstrapProgress({
+    phase: 'configuring-local', message: 'Testing local providers and choosing the best working endpoint…',
+    active: true, completed: 1, total, updatedAt: Date.now(),
+  });
+  const beforeInstall = await detectAgentReadiness({ commandResolver: resolveAgentProbeCommand });
+  const agentInstalls = await installMissingAgentFrontends({
+    readiness: beforeInstall,
+    userDataPath,
+    env: process.env,
+    onProgress: emitBootstrapProgress,
+  });
+
+  emitBootstrapProgress({
+    phase: 'refreshing', message: 'Refreshing agent and local-provider readiness…',
+    active: true, completed: 3, total, updatedAt: Date.now(),
+  });
+  const readiness = await providerReadiness();
+  if (readiness.providerSetup.recommendedProvider && appSettings.defaultProvider !== readiness.providerSetup.recommendedProvider) {
+    appSettings.defaultProvider = readiness.providerSetup.recommendedProvider;
+    if (readiness.providerSetup.recommendedProvider === 'ollama' && readiness.providerSetup.recommendedModel) {
+      appSettings.ollama.model = readiness.providerSetup.recommendedModel;
+    }
+    saveSettings();
+    mainWindow?.webContents.send('settings:changed', appSettings);
   }
   const appUpdate = await appUpdatePromise;
-  return { appUpdate, ...readiness };
+  const bootstrap: BootstrapProgress = {
+    phase: 'complete',
+    message: readiness.providerSetup.ready
+      ? 'Local-first startup configuration is ready.'
+      : 'Startup discovery finished; no usable local provider is currently responding.',
+    active: false,
+    completed: total,
+    total,
+    updatedAt: Date.now(),
+  };
+  emitBootstrapProgress(bootstrap);
+  return { appUpdate, ...readiness, bootstrap, agentInstalls };
+}
+
+async function runStartupChecks(): Promise<StartupStatus> {
+  if (!startupChecksPromise) {
+    startupChecksPromise = performStartupChecks().finally(() => { startupChecksPromise = null; });
+  }
+  return startupChecksPromise;
 }
 
 function createWindow() {
@@ -2203,6 +2316,8 @@ handleIpc('mobile:enable', (_event, input: { port?: number; publicUrl?: string }
 handleIpc('mobile:rotate', (_event, input: { port?: number; publicUrl?: string }) => configureMobileBridge(input || {}, true));
 handleIpc('mobile:disable', () => disableMobileBridge());
 handleIpc('system:startup-checks', () => runStartupChecks());
+handleIpc('system:bootstrap-progress', () => latestBootstrapProgress);
+handleIpc('agents:readiness', () => detectAgentReadiness({ commandResolver: resolveAgentProbeCommand }));
 handleIpc('system:check-updates', () => checkForAppUpdate());
 handleIpc('system:check-providers', async () => (await providerReadiness()).checks);
 handleIpc('settings:update', (_event, nextSettings: Partial<AppSettings>) => {
@@ -2333,6 +2448,7 @@ if (!hasSingleInstanceLock) {
     registerRendererProtocol();
     initStore();
     initSettings();
+    configureManagedAgentEnvironment(app.getPath('userData'), process.env);
     initSecrets();
     initMobileBridgeConfig();
     void initializeMobileBridge().catch(error => {

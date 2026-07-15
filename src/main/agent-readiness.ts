@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from 'child_process';
 
 export type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 export type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
@@ -75,7 +75,7 @@ const AGENT_SPECS: AgentSpec[] = [
     command: 'codex',
     versionArgs: ['--version'],
     supportTier: 'supported',
-    installDiagnostic: 'Codex CLI was not found. Install Codex, add it to PATH, or set CODEX_BIN.',
+    installDiagnostic: 'Codex CLI was not found. Consiglio will attempt a user-level installation; CODEX_BIN may override it.',
     authentication: 'codex',
   },
   {
@@ -85,7 +85,7 @@ const AGENT_SPECS: AgentSpec[] = [
     command: 'interpreter',
     versionArgs: ['--version'],
     supportTier: 'preview',
-    installDiagnostic: 'Open Interpreter was not found. Install it with `pip install open-interpreter` or set OI_BIN.',
+    installDiagnostic: 'Open Interpreter was not found. Consiglio will attempt an isolated user-level installation; OI_BIN may override it.',
     authentication: 'not-required',
   },
   {
