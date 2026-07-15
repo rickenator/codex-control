@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+function getLivePendingApprovals(sessionId?: string): Promise<ApprovalRecord[]> {
+  return ipcRenderer.invoke('agents:pending-approvals', sessionId);
+}
+
+async function resolveApprovalDecision(approvalId: string, approved: boolean): Promise<boolean> {
+  const resolution = await ipcRenderer.invoke('agents:resolve-approval', { approvalId, approved }) as {
+    ok?: boolean;
+  };
+  return resolution?.ok === true;
+}
+
 contextBridge.exposeInMainWorld('codexApi', {
     // Sessions
     startSession: (opts: {
@@ -139,12 +150,9 @@ contextBridge.exposeInMainWorld('codexApi', {
     },
 
     // Approvals
-    getPendingApprovals: (sessionId?: string) =>
-      ipcRenderer.invoke('approval:get-pending', sessionId),
-    approveCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:approve', approvalId),
-    rejectCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:reject', approvalId),
+    getPendingApprovals: (sessionId?: string) => getLivePendingApprovals(sessionId),
+    approveCommand: (approvalId: string) => resolveApprovalDecision(approvalId, true),
+    rejectCommand: (approvalId: string) => resolveApprovalDecision(approvalId, false),
 
     // Approval notifications
     onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => {
