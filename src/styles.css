@@ -1898,3 +1898,53 @@ textarea:focus-visible {
     border-bottom: 1px solid rgba(255, 255, 255, 0.10);
   }
 }
+
+
+.provider-discovery-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(88, 166, 255, 0.07);
+}
+
+.provider-discovery-spinner {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: 3px solid rgba(88, 166, 255, 0.22);
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: provider-discovery-spin 0.8s linear infinite;
+}
+
+.provider-discovery-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  color: #c9d1d9;
+  font-size: 12px;
+}
+
+.provider-discovery-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+}
+
+.provider-discovery-track > span {
+  display: block;
+  height: 100%;
+  min-width: 8%;
+  border-radius: inherit;
+  background: #58a6ff;
+  transition: width 220ms ease;
+}
+
+@keyframes provider-discovery-spin {
+  to { transform: rotate(360deg); }
+}

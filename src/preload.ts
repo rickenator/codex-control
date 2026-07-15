@@ -205,6 +205,13 @@ contextBridge.exposeInMainWorld('codexApi', {
       ipcRenderer.invoke('system:check-updates'),
     checkProviders: () =>
       ipcRenderer.invoke('system:check-providers'),
+    getBootstrapProgress: () =>
+      ipcRenderer.invoke('system:bootstrap-progress'),
+    onBootstrapProgress: (callback: (progress: BootstrapProgress) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, progress: BootstrapProgress) => callback(progress);
+      ipcRenderer.on('system:bootstrap-progress', handler);
+      return () => ipcRenderer.removeListener('system:bootstrap-progress', handler);
+    },
 
     // Discussions (multi-agent)
     startDiscussion: (opts: {

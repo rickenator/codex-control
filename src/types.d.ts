@@ -5,6 +5,25 @@ type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
 type AgentReadinessState = 'ready' | 'configuration-required' | 'missing' | 'timeout' | 'error';
 type AgentConfigurationState = 'ready' | 'required' | 'not-required' | 'unknown';
 
+type BootstrapPhase = 'idle' | 'discovering-local' | 'configuring-local' | 'installing-codex' | 'installing-open-interpreter' | 'refreshing' | 'complete';
+
+interface BootstrapProgress {
+  phase: BootstrapPhase;
+  message: string;
+  active: boolean;
+  completed: number;
+  total: number;
+  updatedAt: number;
+}
+
+interface AgentInstallResult {
+  id: 'codex' | 'open-interpreter';
+  attempted: boolean;
+  installed: boolean;
+  executable?: string;
+  diagnostic: string;
+}
+
 interface AgentReadiness {
   id: AgentId;
   name: string;
@@ -151,9 +170,12 @@ interface StartupStatus {
     lanProviderName?: string;
     lanEndpoint?: string;
     lanModel?: string;
-    recommendedProvider?: 'default' | 'ollama';
+    recommendedProvider?: CodexProvider;
     recommendedModel?: string;
+    selectedLanProviderId?: string;
   };
+  bootstrap: BootstrapProgress;
+  agentInstalls: AgentInstallResult[];
 }
 
 interface CodexAPI {
@@ -231,6 +253,8 @@ interface CodexAPI {
   getStartupStatus: () => Promise<StartupStatus>;
   checkForUpdates: () => Promise<UpdateStatus>;
   checkProviders: () => Promise<HealthCheckItem[]>;
+  getBootstrapProgress: () => Promise<BootstrapProgress>;
+  onBootstrapProgress: (callback: (progress: BootstrapProgress) => void) => () => void;
   lanAddProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) => Promise<CodexSettings>;
   lanRemoveProvider: (id: string) => Promise<CodexSettings>;
   lanUpdateProvider: (provider: { id: string; name: string; host: string; port: number; model: string; apiKey: string }) => Promise<CodexSettings>;

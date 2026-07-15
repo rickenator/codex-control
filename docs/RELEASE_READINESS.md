@@ -87,3 +87,8 @@ Use these labels consistently:
 - **Detected only:** installation detection works, but launch/response behavior has not been validated.
 
 Until the matrix is complete, Codex may be described as supported and the other adapters should be described as preview integrations.
+
+
+## Local-first startup bootstrap
+
+Consiglio now treats local AI as the primary startup path. On startup it visibly scans for running llama.cpp, Ollama, and compatible LAN endpoints, persists the best responding local provider, and refreshes readiness. If the lightweight Codex or Open Interpreter front end is missing, Consiglio attempts a user-level installation without downloading any model weights. Installation failures are nonfatal and remain visible in startup diagnostics.
