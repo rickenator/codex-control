@@ -14,9 +14,10 @@ export default defineConfig({
     rollupOptions: {
       input: path.resolve(__dirname, 'src/index.html'),
       output: {
-        manualChunks: {
-          // Split React into its own chunk for better caching
-          'vendor-react': ['react', 'react-dom'],
+        manualChunks: (id) => {
+          if (id.includes('react') || id.includes('react-dom')) {
+            return 'vendor-react';
+          }
         },
       },
     },
