@@ -16,10 +16,9 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
-      "@/main/*": ["main/*"],
-      "@/features/*": ["features/*"]
+      "@/main/*": ["./main/*"],
+      "@/features/*": ["./features/*"]
     }
   },
   "include": ["."]
