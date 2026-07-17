@@ -46,10 +46,13 @@ test('reports ready installed agents with versions and support tiers', async () 
       'interpreter --version': result({ stdout: 'Open Interpreter 0.4.2\n' }),
       'aider --version': result({ stdout: 'aider 0.88.0\n' }),
       'claude --version': result({ stdout: '2.1.0 (Claude Code)\n' }),
+      'gemini --version': result({ stdout: 'gemini-cli 1.0.0\n' }),
+      'copilot --version': result({ stdout: 'copilot-cli 1.0.0\n' }),
+      'q --version': result({ stdout: 'amazon-q 1.0.0\n' }),
     }),
   });
 
-  assert.equal(agents.length, 4);
+  assert.equal(agents.length, 7);
   assert.ok(agents.every(agent => agent.selectable));
   assert.ok(agents.every(agent => agent.checkedAt === 1234));
 
@@ -69,14 +72,17 @@ test('reports missing CLIs without attempting follow-up authentication', async (
   const calls: string[] = [];
   const agents = await detectAgentReadiness({ env: {}, runner: runnerFor({}, calls) });
 
-  assert.equal(agents.length, 4);
+  assert.equal(agents.length, 7);
   assert.ok(agents.every(agent => agent.state === 'missing'));
   assert.ok(agents.every(agent => !agent.selectable));
   assert.deepEqual(calls.sort(), [
     'aider --version',
     'claude --version',
     'codex --version',
+    'copilot --version',
+    'gemini --version',
     'interpreter --version',
+    'q --version',
   ]);
 });
 
@@ -173,7 +179,7 @@ test('returns partial readiness when one probe throws unexpectedly', async () =>
     }),
   });
 
-  assert.equal(agents.length, 4);
+  assert.equal(agents.length, 7);
   const interpreter = agents.find(agent => agent.id === 'open-interpreter');
   const claude = agents.find(agent => agent.id === 'claude-code');
   assert.equal(interpreter?.selectable, true);

@@ -18,12 +18,15 @@ import { CodexAdapter } from './codex-adapter';
 import { OpenInterpreterAdapter } from './open-interpreter-adapter';
 import { AiderAdapter } from './aider-adapter';
 import { ClaudeCodeAdapter } from './claude-code-adapter';
+import { GeminiAdapter } from './gemini-adapter';
+import { CopilotAdapter } from './copilot-adapter';
+import { AmazonQAdapter } from './amazon-q-adapter';
 
 export const AGENT_READINESS_CHANNEL = 'agents:readiness';
 export const AGENT_APPROVAL_RESOLVE_CHANNEL = 'agents:resolve-approval';
 export const AGENT_APPROVAL_PENDING_CHANNEL = 'agents:pending-approvals';
 
-type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code' | 'gemini' | 'copilot' | 'amazon-q';
 
 function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent): void {
   const senderUrl = event.senderFrame?.url || event.sender.getURL();
@@ -101,6 +104,12 @@ function createConcreteAdapter(agent: AgentId, emitters: EventEmitters): Adapter
       return new AiderAdapter(emitters);
     case 'claude-code':
       return new ClaudeCodeAdapter(emitters);
+    case 'gemini':
+      return new GeminiAdapter(emitters);
+    case 'copilot':
+      return new CopilotAdapter(emitters);
+    case 'amazon-q':
+      return new AmazonQAdapter(emitters);
     default:
       throw new Error(`Unknown agent: ${agent}`);
   }
@@ -125,3 +134,6 @@ export { CodexAdapter } from './codex-adapter';
 export { OpenInterpreterAdapter } from './open-interpreter-adapter';
 export { AiderAdapter } from './aider-adapter';
 export { ClaudeCodeAdapter } from './claude-code-adapter';
+export { GeminiAdapter } from './gemini-adapter';
+export { CopilotAdapter } from './copilot-adapter';
+export { AmazonQAdapter } from './amazon-q-adapter';

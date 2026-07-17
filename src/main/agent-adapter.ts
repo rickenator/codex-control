@@ -67,7 +67,7 @@ export interface AgentSession {
 export interface AgentSessionOptions {
   repository: string;
   branch?: string;
-  agent: 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+  agent: 'codex' | 'open-interpreter' | 'aider' | 'claude-code' | 'gemini' | 'copilot' | 'amazon-q';
   model?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -78,7 +78,7 @@ export interface AgentSessionOptions {
 // ─── Agent Detection ──────────────────────────────────────────────────────────
 
 export interface AgentInfo {
-  id: 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+  id: 'codex' | 'open-interpreter' | 'aider' | 'claude-code' | 'gemini' | 'copilot' | 'amazon-q';
   name: string;
   installed: boolean;
   authenticated: boolean;
@@ -145,6 +145,27 @@ export function detectAgents(emitters: EventEmitters): AgentInfo[] {
     results.push(...(claudeAdapter as any).detectAvailable());
   } catch {
     results.push({ id: 'claude-code', name: 'Claude Code', installed: false, authenticated: false });
+
+  try {
+    const geminiAdapter = new (require('./adapters/gemini-adapter').GeminiAdapter)(emitters);
+    results.push(...(geminiAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'gemini', name: 'Gemini CLI', installed: false, authenticated: false });
+  }
+
+  try {
+    const copilotAdapter = new (require('./adapters/copilot-adapter').CopilotAdapter)(emitters);
+    results.push(...(copilotAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'copilot', name: 'GitHub Copilot CLI', installed: false, authenticated: false });
+  }
+
+  try {
+    const amazonQAdapter = new (require('./adapters/amazon-q-adapter').AmazonQAdapter)(emitters);
+    results.push(...(amazonQAdapter as any).detectAvailable());
+  } catch {
+    results.push({ id: 'amazon-q', name: 'Amazon Q Developer CLI', installed: false, authenticated: false });
+  }
   }
 
   return results;

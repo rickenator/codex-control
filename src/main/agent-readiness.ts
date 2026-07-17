@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 
-export type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+export type AgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code' | 'gemini' | 'copilot' | 'amazon-q';
 export type AgentSupportTier = 'supported' | 'preview' | 'detected-only';
 export type AgentReadinessState = 'ready' | 'configuration-required' | 'missing' | 'timeout' | 'error';
 export type AgentConfigurationState = 'ready' | 'required' | 'not-required' | 'unknown';
@@ -106,6 +106,36 @@ const AGENT_SPECS: AgentSpec[] = [
     versionArgs: ['--version'],
     supportTier: 'preview',
     installDiagnostic: 'Claude Code was not found. Install `@anthropic-ai/claude-code` or set CLAUDE_BIN.',
+    authentication: 'unknown',
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini CLI',
+    commandEnv: 'GEMINI_BIN',
+    command: 'gemini',
+    versionArgs: ['--version'],
+    supportTier: 'preview',
+    installDiagnostic: 'Gemini CLI was not found. Install via `npm install -g @anthropic-ai/claude-code` or set GEMINI_BIN.',
+    authentication: 'unknown',
+  },
+  {
+    id: 'copilot',
+    name: 'GitHub Copilot CLI',
+    commandEnv: 'COPILOT_BIN',
+    command: 'copilot',
+    versionArgs: ['--version'],
+    supportTier: 'preview',
+    installDiagnostic: 'GitHub Copilot CLI was not found. Install via `npm install -g @anthropic-ai/claude-code` or set COPILOT_BIN.',
+    authentication: 'unknown',
+  },
+  {
+    id: 'amazon-q',
+    name: 'Amazon Q Developer CLI',
+    commandEnv: 'Q_BIN',
+    command: 'q',
+    versionArgs: ['--version'],
+    supportTier: 'preview',
+    installDiagnostic: 'Amazon Q Developer CLI was not found. Install via `npm install -g @anthropic-ai/claude-code` or set Q_BIN.',
     authentication: 'unknown',
   },
 ];
