@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+function getLivePendingApprovals(sessionId?: string): Promise<ApprovalRecord[]> {
+  return ipcRenderer.invoke('agents:pending-approvals', sessionId);
+}
+
+async function resolveApprovalDecision(approvalId: string, approved: boolean): Promise<boolean> {
+  const resolution = await ipcRenderer.invoke('agents:resolve-approval', { approvalId, approved }) as {
+    ok?: boolean;
+  };
+  return resolution?.ok === true;
+}
+
 contextBridge.exposeInMainWorld('codexApi', {
     // Sessions
     startSession: (opts: {
@@ -139,12 +150,9 @@ contextBridge.exposeInMainWorld('codexApi', {
     },
 
     // Approvals
-    getPendingApprovals: (sessionId?: string) =>
-      ipcRenderer.invoke('approval:get-pending', sessionId),
-    approveCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:approve', approvalId),
-    rejectCommand: (approvalId: string) =>
-      ipcRenderer.invoke('approval:reject', approvalId),
+    getPendingApprovals: (sessionId?: string) => getLivePendingApprovals(sessionId),
+    approveCommand: (approvalId: string) => resolveApprovalDecision(approvalId, true),
+    rejectCommand: (approvalId: string) => resolveApprovalDecision(approvalId, false),
 
     // Approval notifications
     onApprovalRequest: (callback: (approval: ApprovalRecord) => void) => {
@@ -197,6 +205,13 @@ contextBridge.exposeInMainWorld('codexApi', {
       ipcRenderer.invoke('system:check-updates'),
     checkProviders: () =>
       ipcRenderer.invoke('system:check-providers'),
+    getBootstrapProgress: () =>
+      ipcRenderer.invoke('system:bootstrap-progress'),
+    onBootstrapProgress: (callback: (progress: BootstrapProgress) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, progress: BootstrapProgress) => callback(progress);
+      ipcRenderer.on('system:bootstrap-progress', handler);
+      return () => ipcRenderer.removeListener('system:bootstrap-progress', handler);
+    },
 
     // Discussions (multi-agent)
     startDiscussion: (opts: {
@@ -231,5 +246,5 @@ contextBridge.exposeInMainWorld('codexApi', {
       return () => ipcRenderer.removeListener('discussion:error', handler);
     },
     getAvailableAgents: () =>
-      ipcRenderer.invoke('agents:list'),
+      ipcRenderer.invoke('agents:readiness'),
 });

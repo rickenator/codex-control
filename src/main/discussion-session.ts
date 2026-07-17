@@ -1,26 +1,13 @@
-/**
- * DiscussionSession — multi-agent orchestration layer
- * 
- * Manages a conversation between multiple AI agents. The user sends one prompt,
- * and agents discuss it among themselves before synthesizing a final answer.
- * 
- * Architecture:
- *   User → Moderator → Agent A → Agent B → ... → Synthesis → User
- * 
- * Each agent sees the full conversation history as context. The moderator
- * decides which agent responds next based on strategy (round-robin, context-aware).
- */
-
-import type { IPty } from 'node-pty';
 import type {
   AgentAdapter,
+  AgentApproval,
   AgentEvent,
   AgentSession,
   AgentSessionOptions,
+  EventEmitters,
 } from './agent-adapter';
-import { getAdapter } from './adapters';
 
-// ─── Discussion Types ──────────────────────────────────────────────────────────
+export type DiscussionAgentId = 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
 
 export interface DiscussionMessage {
   id: string;
@@ -30,20 +17,36 @@ export interface DiscussionMessage {
   timestamp: number;
 }
 
+export type DiscussionAdapterFactory = (
+  agentId: DiscussionAgentId,
+  emitters: EventEmitters,
+) => AgentAdapter;
+
 export interface DiscussionOptions {
   repository: string;
   branch?: string;
   agents: Array<{
-    id: 'codex' | 'open-interpreter' | 'aider' | 'claude-code';
+    id: DiscussionAgentId;
     model?: string;
     customInstructions?: string;
   }>;
   maxTurns?: number;
   moderatorStrategy?: 'round-robin' | 'context-aware' | 'user-select';
   synthesisAgent?: 'codex' | 'open-interpreter';
+  /** Maximum wait for an event-streamed response. */
+  responseTimeoutMs?: number;
+  /** Quiet period after the last response event before a turn is considered complete. */
+  responseStableMs?: number;
 }
 
-/** State of a running discussion */
+export interface DiscussionEmitters {
+  emitMessage(message: DiscussionMessage): void;
+  emitEvent(event: AgentEvent): void;
+  emitError(error: string): void;
+  emitApproval?(approval: AgentApproval): void;
+  emitTerminalOutput?(sessionId: string, data: string): void;
+}
+
 interface DiscussionState {
   sessionId: string;
   messages: DiscussionMessage[];
@@ -59,158 +62,92 @@ interface DiscussionState {
   activeAgentIndex: number;
   pendingResponses: Map<string, string>;
   isProcessing: Map<string, boolean>;
+  responseTimeoutMs: number;
+  responseStableMs: number;
 }
 
-export interface DiscussionEmitters {
-  emitMessage(message: DiscussionMessage): void;
-  emitEvent(event: AgentEvent): void;
-  emitError(error: string): void;
-}
+const DEFAULT_RESPONSE_TIMEOUT_MS = 60_000;
+const DEFAULT_RESPONSE_STABLE_MS = 1_500;
+const RESPONSE_POLL_INTERVAL_MS = 100;
 
-// ─── Context-Aware Moderation ──────────────────────────────────────────────────
-
-/**
- * Analyzes conversation context to decide which agent should respond next.
- * Uses simple heuristics — can be upgraded to LLM-based routing later.
- */
-function selectAgentByContext(
-  state: DiscussionState,
-  lastSpeakerId?: string
-): string | null {
+function selectAgentByContext(state: DiscussionState, lastSpeakerId?: string): string | null {
   const agentIds = Array.from(state.agents.keys());
   if (agentIds.length === 0) return null;
 
-  // If there's a last speaker, give the floor to a different agent
-  // (unless it's the only agent)
   if (lastSpeakerId && agentIds.length > 1) {
     const others = agentIds.filter(id => id !== lastSpeakerId);
-    return others[Math.floor(Math.random() * others.length)];
+    return others[Math.floor(Math.random() * others.length)] || null;
   }
 
-  // If last message was user input, pick based on topic keywords
-  const lastMsg = state.messages[state.messages.length - 1];
-  if (lastMsg?.role === 'user') {
-    const lowerContent = lastMsg.content.toLowerCase();
-    
-    // Code-heavy requests → Open Interpreter (Python specialist)
-    if (/python|script|code|function|class|import|pip|install/.test(lowerContent)) {
-      if (agentIds.includes('open-interpreter')) return 'open-interpreter';
-    }
-    
-    // Shell/system tasks → Codex (system specialist)
-    if (/shell|bash|git|deploy|build|compile|make|docker|system|file|path/.test(lowerContent)) {
-      if (agentIds.includes('codex')) return 'codex';
-    }
-    
-    // General questions → round-robin fallback
+  const lastMessage = state.messages[state.messages.length - 1];
+  const content = lastMessage?.content.toLowerCase() || '';
+
+  if (/python|script|code|function|class|import|pip|install/.test(content)
+      && agentIds.includes('open-interpreter')) {
+    return 'open-interpreter';
   }
 
-  // If last message was synthesis, pick based on what the synthesis asked for
-  if (lastMsg?.role === 'synthesis') {
-    const lowerContent = lastMsg.content.toLowerCase();
-    if (/python|script|code/.test(lowerContent)) {
-      if (agentIds.includes('open-interpreter')) return 'open-interpreter';
-    }
-    if (/shell|bash|git|deploy|build/.test(lowerContent)) {
-      if (agentIds.includes('codex')) return 'codex';
-    }
+  if (/shell|bash|git|deploy|build|compile|make|docker|system|file|path/.test(content)
+      && agentIds.includes('codex')) {
+    return 'codex';
   }
 
-  // Default: round-robin from next position
   const agentId = agentIds[state.activeAgentIndex % agentIds.length];
-  state.activeAgentIndex++;
-  return agentId;
+  state.activeAgentIndex += 1;
+  return agentId || null;
 }
 
-// ─── Response Capturing Emitters ───────────────────────────────────────────────
-
-/**
- * Creates emitters that accumulate agent responses from events.
- * Must be called AFTER agents map is populated.
- */
-function createResponseCapturingEmitters(
-  state: DiscussionState,
-  baseEmitters: DiscussionEmitters
-): DiscussionEmitters {
-  return {
-    emitMessage: (message) => {
-      baseEmitters.emitMessage(message);
-    },
-    emitEvent: (event) => {
-      // Accumulate response content per agent. Each agent has exactly one session,
-      // so we map event.session_id -> agentId via the agents map.
-      if (event.type === 'response' && event.session_id) {
-        for (const [agentId, session] of state.agents) {
-          if (session.sessionId === event.session_id) {
-            const current = state.pendingResponses.get(agentId) || '';
-            state.pendingResponses.set(agentId, current + event.content);
-            break;
-          }
-        }
-      }
-      baseEmitters.emitEvent(event);
-    },
-    emitError: (error) => {
-      baseEmitters.emitError(error);
-    },
-  };
+function agentIdForSession(state: DiscussionState, sessionId: string): string | null {
+  for (const [agentId, session] of state.agents) {
+    if (session.sessionId === sessionId) return agentId;
+  }
+  return null;
 }
 
-// ─── DiscussionSession Class ──────────────────────────────────────────────────
+function captureResponseEvent(state: DiscussionState, event: AgentEvent): void {
+  if (event.type !== 'response' || !event.session_id) return;
+
+  const agentId = agentIdForSession(state, event.session_id);
+  if (!agentId || !state.isProcessing.get(agentId)) return;
+
+  const current = state.pendingResponses.get(agentId) || '';
+  state.pendingResponses.set(agentId, current + event.content);
+}
 
 export class DiscussionSession {
-  private state: DiscussionState;
   private running = false;
+  private state: DiscussionState;
 
-  constructor(state: DiscussionState) {
+  private constructor(state: DiscussionState) {
     this.state = state;
   }
 
-  // ─── Factory ──────────────────────────────────────────────────────────────
-
-  static async create(options: DiscussionOptions, emitters?: DiscussionEmitters): Promise<DiscussionSession> {
+  static async create(
+    options: DiscussionOptions,
+    emitters?: DiscussionEmitters,
+    injectedAdapterFactory?: DiscussionAdapterFactory,
+  ): Promise<DiscussionSession> {
     const sessionId = `disc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    
-    // Base emitters (provided by main.ts or stubs)
     const baseEmitters: DiscussionEmitters = emitters || {
-      emitMessage: (message) => {
+      emitMessage: message => {
         console.log(`[Discussion ${sessionId}] ${message.role}: ${message.content.slice(0, 100)}...`);
       },
-      emitEvent: (event) => {
+      emitEvent: event => {
         console.log(`[Discussion ${sessionId}] Event: ${event.type}`);
       },
-      emitError: (error) => {
+      emitError: error => {
         console.error(`[Discussion ${sessionId}] Error: ${error}`);
       },
     };
 
-    // Create agent sessions first
-    const agents = new Map<string, AgentSession>();
-    const adapters = new Map<string, AgentAdapter>();
-
-    for (const agentConfig of options.agents) {
-      const adapter = getAdapter(agentConfig.id, baseEmitters as any);
-      adapters.set(agentConfig.id, adapter);
-
-      const session = await adapter.launch({
-        repository: options.repository,
-        branch: options.branch,
-        agent: agentConfig.id,
-        model: agentConfig.model,
-        customInstructions: agentConfig.customInstructions,
-      } as AgentSessionOptions);
-
-      agents.set(agentConfig.id, session);
-    }
-
-    // Now create state WITHOUT emitters first
-    const initialState: Omit<DiscussionState, 'emitters'> = {
+    const state: DiscussionState = {
       sessionId,
       messages: [],
-      agents,
-      adapters,
+      agents: new Map(),
+      adapters: new Map(),
+      emitters: baseEmitters,
       currentTurn: 0,
-      maxTurns: options.maxTurns || 10,
+      maxTurns: Math.max(1, options.maxTurns || 10),
       moderatorStrategy: options.moderatorStrategy || 'round-robin',
       synthesisAgent: options.synthesisAgent,
       repository: options.repository,
@@ -218,55 +155,111 @@ export class DiscussionSession {
       activeAgentIndex: 0,
       pendingResponses: new Map(),
       isProcessing: new Map(),
+      responseTimeoutMs: Math.max(1, options.responseTimeoutMs || DEFAULT_RESPONSE_TIMEOUT_MS),
+      responseStableMs: Math.max(1, options.responseStableMs || DEFAULT_RESPONSE_STABLE_MS),
     };
 
-    // Create response-capturing emitters (agents map is now populated)
-    const capturingEmitters = createResponseCapturingEmitters(
-      initialState as DiscussionState,
-      baseEmitters
-    );
-
-    const state: DiscussionState = {
-      ...initialState,
-      emitters: capturingEmitters,
+    const adapterEmitters: EventEmitters = {
+      emitEvent: event => {
+        captureResponseEvent(state, event);
+        baseEmitters.emitEvent(event);
+      },
+      emitApproval: approval => {
+        baseEmitters.emitApproval?.(approval);
+      },
+      emitTerminalOutput: (agentSessionId, data) => {
+        baseEmitters.emitTerminalOutput?.(agentSessionId, data);
+      },
     };
+
+    // Keep the orchestration module importable in plain Node tests. The real
+    // registry pulls in Electron and native PTY modules, so load it only when
+    // production code did not supply an injected host dependency.
+    const adapterFactory = injectedAdapterFactory
+      || (await import('./adapters')).getAdapter;
+
+    try {
+      for (const agentConfig of options.agents) {
+        if (state.adapters.has(agentConfig.id)) {
+          throw new Error(`Discussion agent ${agentConfig.id} was selected more than once.`);
+        }
+
+        const adapter = adapterFactory(agentConfig.id, adapterEmitters);
+        state.adapters.set(agentConfig.id, adapter);
+
+        const session = await adapter.launch({
+          repository: options.repository,
+          branch: options.branch,
+          agent: agentConfig.id,
+          model: agentConfig.model,
+          customInstructions: agentConfig.customInstructions,
+        } as AgentSessionOptions);
+
+        state.agents.set(agentConfig.id, session);
+      }
+    } catch (error) {
+      for (const [agentId, session] of state.agents) {
+        await state.adapters.get(agentId)?.stopSession(session.sessionId).catch(() => false);
+      }
+      throw error;
+    }
+
+    if (state.agents.size === 0) {
+      throw new Error('A discussion requires at least one available agent.');
+    }
 
     return new DiscussionSession(state);
   }
 
-  // ─── Public API ───────────────────────────────────────────────────────────
-
   async sendMessage(content: string): Promise<DiscussionMessage[]> {
-    if (!this.running) {
-      this.running = true;
-      await this.runDiscussion(content);
-    } else {
-      const userMsg: DiscussionMessage = {
-        id: `msg_${Date.now()}`,
-        role: 'user',
-        content,
-        timestamp: Date.now(),
-      };
-      this.state.messages.push(userMsg);
-      this.state.emitters.emitMessage(userMsg);
-      await this.continueDiscussion();
+    const prompt = content.trim();
+    if (!prompt) return this.getHistory();
+    if (this.running) throw new Error('This discussion is already processing a message.');
+
+    this.running = true;
+    this.state.currentTurn = 0;
+
+    const userMessage: DiscussionMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      role: 'user',
+      content: prompt,
+      timestamp: Date.now(),
+    };
+    this.state.messages.push(userMessage);
+    this.state.emitters.emitMessage(userMessage);
+
+    try {
+      while (this.running && this.state.currentTurn < this.state.maxTurns) {
+        const agentId = this.selectNextAgent();
+        if (!agentId) break;
+
+        await this.runTurn(agentId);
+        this.state.currentTurn += 1;
+      }
+
+      if (this.running && this.state.synthesisAgent) {
+        await this.synthesizeFinalAnswer();
+      }
+    } finally {
+      this.running = false;
     }
-    
-    return [...this.state.messages];
+
+    return this.getHistory();
   }
 
   getHistory(): DiscussionMessage[] {
     return [...this.state.messages];
   }
 
+  getAgentIds(): string[] {
+    return [...this.state.agents.keys()];
+  }
+
   async stop(): Promise<void> {
     this.running = false;
-    
+
     for (const [agentId, session] of this.state.agents) {
-      const adapter = this.state.adapters.get(agentId);
-      if (adapter) {
-        await adapter.stopSession(session.sessionId).catch(() => {});
-      }
+      await this.state.adapters.get(agentId)?.stopSession(session.sessionId).catch(() => false);
     }
   }
 
@@ -274,241 +267,158 @@ export class DiscussionSession {
     return this.running;
   }
 
-  // ─── Discussion Orchestration ─────────────────────────────────────────────
+  private selectNextAgent(): string | null {
+    const agentIds = Array.from(this.state.agents.keys());
+    if (agentIds.length === 0) return null;
 
-  private async runDiscussion(initialPrompt: string): Promise<void> {
-    const userMsg: DiscussionMessage = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: initialPrompt,
-      timestamp: Date.now(),
-    };
-    this.state.messages.push(userMsg);
-    this.state.emitters.emitMessage(userMsg);
+    const lastSpeakerId = this.state.messages[this.state.messages.length - 1]?.agentId;
 
-    while (this.running && this.state.currentTurn < this.state.maxTurns) {
-      const agentId = this.selectNextAgent();
-      if (!agentId) break;
-
-      await this.runTurn(agentId);
-      this.state.currentTurn++;
+    if (this.state.moderatorStrategy === 'context-aware') {
+      return selectAgentByContext(this.state, lastSpeakerId);
     }
 
-    // Synthesize final answer
-    if (this.state.synthesisAgent && this.running) {
-      await this.synthesizeFinalAnswer();
-    }
-
-    this.running = false;
-  }
-
-  private async continueDiscussion(): Promise<void> {
-    while (this.running && this.state.currentTurn < this.state.maxTurns) {
-      const agentId = this.selectNextAgent();
-      if (!agentId) break;
-
-      await this.runTurn(agentId);
-      this.state.currentTurn++;
-    }
+    // user-select currently falls back to deterministic round-robin until the
+    // renderer supplies an explicit next-agent selection control.
+    const agentId = agentIds[this.state.activeAgentIndex % agentIds.length];
+    this.state.activeAgentIndex += 1;
+    return agentId || null;
   }
 
   private async runTurn(agentId: string): Promise<void> {
     const session = this.state.agents.get(agentId);
     const adapter = this.state.adapters.get(agentId);
-    
     if (!session || !adapter) {
-      console.warn(`[Discussion] Agent ${agentId} not found, skipping`);
+      this.state.emitters.emitError(`Discussion agent ${agentId} is unavailable.`);
       return;
     }
 
-    // Initialize response tracking
     this.state.pendingResponses.set(agentId, '');
     this.state.isProcessing.set(agentId, true);
-    
-    // Build context for the agent
-    const context = this.buildAgentContext(agentId);
-    
-    // Send prompt to agent — returns accumulated response for Codex,
-    // or empty string for agents that stream via events (OI, Aider, Claude).
-    const response = await adapter.sendPrompt(session.sessionId, context);
-    
-    if (!response) {
-      // For streaming agents, wait for event-based accumulation
-      const streamedResponse = await this.waitForStreamedResponse(agentId);
-      if (streamedResponse) {
-        const agentMsg: DiscussionMessage = {
-          id: `msg_${Date.now()}`,
-          role: 'agent',
-          agentId,
-          content: streamedResponse,
-          timestamp: Date.now(),
-        };
-        this.state.messages.push(agentMsg);
-        this.state.emitters.emitMessage(agentMsg);
+
+    try {
+      const directResponse = (await adapter.sendPrompt(
+        session.sessionId,
+        this.buildAgentContext(agentId),
+      )).trim();
+      const response = directResponse || await this.waitForStreamedResponse(agentId);
+
+      if (!response) {
+        this.state.emitters.emitError(`${agentId} did not produce a response before the timeout.`);
+        return;
       }
-    } else {
-      // Codex returned accumulated response directly
-      const agentMsg: DiscussionMessage = {
-        id: `msg_${Date.now()}`,
+
+      const agentMessage: DiscussionMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         role: 'agent',
         agentId,
         content: response,
         timestamp: Date.now(),
       };
-      this.state.messages.push(agentMsg);
-      this.state.emitters.emitMessage(agentMsg);
+      this.state.messages.push(agentMessage);
+      this.state.emitters.emitMessage(agentMessage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.state.emitters.emitError(`${agentId} failed: ${message}`);
+    } finally {
+      this.state.isProcessing.set(agentId, false);
     }
-    
-    this.state.isProcessing.set(agentId, false);
   }
 
   private async waitForStreamedResponse(agentId: string): Promise<string | null> {
-    const maxWaitMs = 60_000;
-    const pollInterval = 500;
-    const startTime = Date.now();
+    const startedAt = Date.now();
+    let previous = '';
+    let lastChangedAt = startedAt;
 
-    while (Date.now() - startTime < maxWaitMs) {
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-      
-      const response = this.state.pendingResponses.get(agentId) || '';
-      
-      // If we have content and it hasn't changed for 3 seconds, consider it done
-      if (response.length > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const stillSame = this.state.pendingResponses.get(agentId) === response;
-        if (stillSame) {
-          this.state.isProcessing.set(agentId, false);
-          return response.trim() || null;
-        }
+    while (this.running && Date.now() - startedAt < this.state.responseTimeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS));
+
+      const current = this.state.pendingResponses.get(agentId) || '';
+      if (current !== previous) {
+        previous = current;
+        lastChangedAt = Date.now();
+      }
+
+      if (current.trim() && Date.now() - lastChangedAt >= this.state.responseStableMs) {
+        return current.trim();
       }
     }
 
-    // Timeout
     const response = this.state.pendingResponses.get(agentId) || '';
-    this.state.isProcessing.set(agentId, false);
     return response.trim() || null;
-  }
-
-  private selectNextAgent(): string | null {
-    const agentIds = Array.from(this.state.agents.keys());
-    if (agentIds.length === 0) return null;
-
-    // Get last speaker to avoid double-speaking
-    const lastSpeakerId = this.state.messages.length > 0
-      ? this.state.messages[this.state.messages.length - 1].agentId
-      : undefined;
-
-    switch (this.state.moderatorStrategy) {
-      case 'round-robin': {
-        const agentId = agentIds[this.state.activeAgentIndex % agentIds.length];
-        this.state.activeAgentIndex++;
-        return agentId;
-      }
-      
-      case 'context-aware':
-        return selectAgentByContext(this.state, lastSpeakerId);
-      
-      case 'user-select':
-        // TODO: Prompt user to select which agent responds next
-        const agentId3 = agentIds[this.state.activeAgentIndex % agentIds.length];
-        this.state.activeAgentIndex++;
-        return agentId3;
-      
-      default:
-        return agentIds[0] || null;
-    }
   }
 
   private buildAgentContext(currentAgentId: string): string {
-    // Build conversation history excluding the current agent's last response
-    const relevantMessages = this.state.messages.filter((msg, idx) => {
-      if (msg.agentId === currentAgentId && idx === this.state.messages.length - 1) {
-        return false;
-      }
-      return true;
-    });
+    const context = this.state.messages.map(message => {
+      if (message.role === 'user') return `User: ${message.content}`;
+      if (message.role === 'agent' && message.agentId) return `${message.agentId}: ${message.content}`;
+      if (message.role === 'synthesis') return `[Synthesis]: ${message.content}`;
+      return message.content;
+    }).join('\n\n');
 
-    const contextLines = relevantMessages.map(msg => {
-      if (msg.role === 'user') return `User: ${msg.content}`;
-      if (msg.role === 'agent' && msg.agentId) return `${msg.agentId}: ${msg.content}`;
-      if (msg.role === 'synthesis') return `[Synthesis]: ${msg.content}`;
-      return msg.content;
-    });
+    const roleInstructions: Record<string, string> = {
+      codex: 'Act as the system, shell, and repository specialist. Give concrete commands and identify operational risks.',
+      'open-interpreter': 'Act as the executable-code specialist. Prefer complete, runnable programs and verify assumptions.',
+      aider: 'Act as the focused code-editing specialist. Propose minimal repository changes and tests.',
+      'claude-code': 'Act as the architecture and implementation reviewer. Identify design flaws and integration risks.',
+    };
 
-    const context = contextLines.join('\n\n');
-    
-    // Add role-specific instructions
-    let roleInstructions = '';
-    if (currentAgentId === 'open-interpreter') {
-      roleInstructions = '\n\nYou are Open Interpreter, a Python coding specialist. When asked to write code, provide complete, runnable Python scripts.';
-    } else if (currentAgentId === 'codex') {
-      roleInstructions = '\n\nYou are Codex CLI, a system and shell specialist. When asked about file operations, git, or system tasks, provide shell commands.';
-    }
-
-    return `Discussion context:\n\n${context}\n\nPlease respond to the discussion.${roleInstructions}`;
-  }
-
-  private async waitForAgentResponse(agentId: string, session: AgentSession): Promise<string | null> {
-    const maxWaitMs = 60_000; // 60 second timeout
-    const pollInterval = 500;
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWaitMs) {
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-      
-      // Check if PTY exited (agent finished)
-      if (!session.pty) {
-        const response = this.state.pendingResponses.get(agentId) || '';
-        this.state.isProcessing.set(agentId, false);
-        return response.trim() || null;
-      }
-      
-      // Check if we have accumulated response content and agent is done processing
-      const response = this.state.pendingResponses.get(agentId) || '';
-      if (response.length > 0 && !this.state.isProcessing.get(agentId)) {
-        return response.trim() || null;
-      }
-    }
-
-    // Timeout — return whatever we have
-    const response = this.state.pendingResponses.get(agentId) || '';
-    this.state.isProcessing.set(agentId, false);
-    return response.trim() || null;
+    return [
+      'Discussion context:',
+      context,
+      `You are ${currentAgentId}. ${roleInstructions[currentAgentId] || 'Respond as a technical specialist.'}`,
+      'Respond to the discussion directly. Do not restate the full transcript.',
+    ].filter(Boolean).join('\n\n');
   }
 
   private async synthesizeFinalAnswer(): Promise<void> {
-    if (!this.state.synthesisAgent) return;
+    const agentId = this.state.synthesisAgent;
+    if (!agentId) return;
 
-    const session = this.state.agents.get(this.state.synthesisAgent);
-    const adapter = this.state.adapters.get(this.state.synthesisAgent);
-    
-    if (!session || !adapter) return;
+    const session = this.state.agents.get(agentId);
+    const adapter = this.state.adapters.get(agentId);
+    if (!session || !adapter) {
+      this.state.emitters.emitError(`Synthesis agent ${agentId} is unavailable.`);
+      return;
+    }
 
-    const context = this.state.messages.map(msg => {
-      if (msg.role === 'user') return `User: ${msg.content}`;
-      if (msg.role === 'agent' && msg.agentId) return `${msg.agentId}: ${msg.content}`;
-      return msg.content;
+    const transcript = this.state.messages.map(message => {
+      if (message.role === 'user') return `User: ${message.content}`;
+      if (message.role === 'agent' && message.agentId) return `${message.agentId}: ${message.content}`;
+      return message.content;
     }).join('\n\n');
 
-    const synthesisPrompt = `Based on the following discussion between multiple AI agents, provide a final synthesized answer that addresses the user's original question:\n\n${context}`;
+    const synthesisPrompt = [
+      'Synthesize the following multi-agent discussion into one final answer.',
+      'Resolve disagreements, preserve concrete commands and caveats, and answer the original user request directly.',
+      transcript,
+    ].join('\n\n');
 
-    const response = await adapter.sendPrompt(session.sessionId, synthesisPrompt);
-    
-    if (response) {
-      // For streaming synthesis agents, wait for event accumulation
-      const finalResponse = response.trim() || await this.waitForStreamedResponse(this.state.synthesisAgent!);
-      
-      if (response) {
-        const synthesisMsg: DiscussionMessage = {
-          id: `msg_${Date.now()}`,
-          role: 'synthesis',
-          agentId: this.state.synthesisAgent,
-          content: response,
-          timestamp: Date.now(),
-        };
-        this.state.messages.push(synthesisMsg);
-        this.state.emitters.emitMessage(synthesisMsg);
+    this.state.pendingResponses.set(agentId, '');
+    this.state.isProcessing.set(agentId, true);
+
+    try {
+      const directResponse = (await adapter.sendPrompt(session.sessionId, synthesisPrompt)).trim();
+      const response = directResponse || await this.waitForStreamedResponse(agentId);
+
+      if (!response) {
+        this.state.emitters.emitError(`${agentId} did not produce a synthesis before the timeout.`);
+        return;
       }
+
+      const synthesisMessage: DiscussionMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        role: 'synthesis',
+        agentId,
+        content: response,
+        timestamp: Date.now(),
+      };
+      this.state.messages.push(synthesisMessage);
+      this.state.emitters.emitMessage(synthesisMessage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.state.emitters.emitError(`${agentId} synthesis failed: ${message}`);
+    } finally {
+      this.state.isProcessing.set(agentId, false);
     }
   }
 }

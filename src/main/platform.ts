@@ -46,6 +46,11 @@ export function codexExecutableCandidates(options: Omit<ResolveExecutableOptions
   const names = platform === 'win32' ? ['codex.exe', 'codex.cmd', 'codex.bat', 'codex'] : ['codex'];
   const directories = (env.PATH || '').split(platformPath.delimiter).filter(Boolean);
 
+  const managedAgentHome = env.CONSIGLIO_AGENT_HOME?.trim();
+  if (managedAgentHome) {
+    directories.push(platformPath.join(managedAgentHome, 'codex', 'node_modules', '.bin'));
+  }
+
   if (platform === 'win32') {
     if (env.APPDATA) directories.push(platformPath.join(env.APPDATA, 'npm'));
     if (env.LOCALAPPDATA) directories.push(platformPath.join(env.LOCALAPPDATA, 'Programs', 'Codex'));
