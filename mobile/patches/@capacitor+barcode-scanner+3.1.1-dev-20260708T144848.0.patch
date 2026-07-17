@@ -1,0 +1,15 @@
+diff --git a/node_modules/@capacitor/barcode-scanner/android/build.gradle b/node_modules/@capacitor/barcode-scanner/android/build.gradle
+index 035ea67..9dd4b74 100644
+--- a/node_modules/@capacitor/barcode-scanner/android/build.gradle
++++ b/node_modules/@capacitor/barcode-scanner/android/build.gradle
+@@ -22,7 +22,9 @@ buildscript {
+ }
+ 
+ apply plugin: 'com.android.library'
+-apply plugin: 'kotlin-android'
++if (!extensions.findByName('kotlin')) {
++        apply plugin: 'kotlin-android'
++    }
+ 
+ android {
+     namespace = "com.capacitorjs.barcodescanner"
